@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { redactSecrets } from "../../src/sanitize.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -53,5 +54,27 @@ describe("no secrets in source, tests, or examples", () => {
     expect(readme).toMatch(/PLAUD_API_TOKEN/);
     expect(readme).toMatch(/Keychain/);
     expect(readme).toMatch(/not Grok/i);
+    expect(readme).toMatch(/plaud-index-mcp login/);
+    expect(readme).toMatch(/not the shareable path/);
+    expect(readme).toMatch(/8199/);
+  });
+
+  it("does not commit OAuth client secrets", () => {
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      expect(text, file).not.toMatch(/clientSecret\s*:\s*["'][^"']+["']/);
+      expect(text, file).not.toMatch(/PLAUD_CLIENT_SECRET\s*=\s*["'][^"']{4,}["']/);
+    }
+  });
+});
+
+describe("redactSecrets", () => {
+  it("redacts access and refresh tokens from log text", () => {
+    const jwtish = ["eyJ", "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", ".aaa.bbb"].join("");
+    const refresh = ["super", "refresh"].join("-");
+    const text = redactSecrets(`access_token=${jwtish} refresh_token=${refresh} Bearer ${jwtish}`);
+    expect(text).toContain("[REDACTED]");
+    expect(text).not.toContain(refresh);
+    expect(text).not.toContain(jwtish);
   });
 });

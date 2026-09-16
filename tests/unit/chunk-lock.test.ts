@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chunkText, DEFAULT_CHUNK_CHARS } from "../../src/chunk.js";
-import { isIndexerMode } from "../../src/processMode.js";
+import { isIndexerMode, getCliCommand } from "../../src/processMode.js";
 import { bindStdinCloseExit, shouldExitOnStdinClose } from "../../src/runtime.js";
 import { createIndexerLock, formatLockData, parseLockData } from "../../src/lock.js";
 import { mkdtempSync } from "node:fs";
@@ -27,6 +27,14 @@ describe("processMode", () => {
     expect(isIndexerMode(["node", "dist/cli.js", "--mode", "indexer"])).toBe(true);
     expect(isIndexerMode(["node", "/usr/bin/plaud-index-indexer"])).toBe(true);
     expect(isIndexerMode(["node", "dist/cli.js"])).toBe(false);
+    expect(isIndexerMode(["node", "dist/cli.js", "login"])).toBe(false);
+  });
+
+  it("routes login and logout as CLI commands", () => {
+    expect(getCliCommand(["node", "dist/cli.js", "login"])).toBe("login");
+    expect(getCliCommand(["node", "dist/cli.js", "logout"])).toBe("logout");
+    expect(getCliCommand(["node", "dist/cli.js", "login", "--no-browser"])).toBe("login");
+    expect(getCliCommand(["node", "dist/cli.js"])).toBe("mcp");
   });
 });
 
