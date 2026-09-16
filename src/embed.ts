@@ -17,7 +17,7 @@ function normalize(vec: number[]): number[] {
 }
 
 /**
- * Deterministic local embedder for tests. Not used in Mini production.
+ * Deterministic local embedder for tests. Not used in production.
  */
 export function createHashEmbedder(modelId = "mock/hash-minilm", dim = EMBEDDING_DIM): Embedder {
   return {

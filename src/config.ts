@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { getConfigPath, getPlaudIndexDir } from "./paths.js";
 
-/** Product default (Mac Mini recommended starting point). */
+/** Product default. */
 export const DEFAULT_INDEX_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Documented floor: 30 seconds. */

@@ -30,7 +30,7 @@ export async function runOneRefresh(options: {
   const token = readPlaudToken(env);
   if (!token && env.PLAUD_CLIENT !== "mock" && env.PLAUD_USE_MOCK !== "1") {
     log(
-      "PLAUD_API_TOKEN is not set. Put the Plaud API token in Keychain or env on the Mini. Do not use Grok OAuth. Skipping cycle."
+      "PLAUD_API_TOKEN is not set. Put the Plaud API token in Keychain or env. Do not use Grok OAuth. Skipping cycle."
     );
     return;
   }

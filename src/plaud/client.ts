@@ -7,7 +7,7 @@ export { HttpPlaudClient } from "./httpClient.js";
 export { MockPlaudClient } from "./mockClient.js";
 
 /**
- * Auth is PLAUD_API_TOKEN (Keychain/env on Mini). This product never uses
+ * Auth is PLAUD_API_TOKEN (Keychain/env). This product never uses
  * Grok's OAuth session or ~/.plaud MCP tokens.
  */
 export function createPlaudClient(options: {

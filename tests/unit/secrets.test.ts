@@ -39,15 +39,16 @@ describe("no secrets in source, tests, or examples", () => {
     expect(pkg.name).toBe("plaud-index-mcp");
     expect(pkg.version).toBe("0.1.0");
     expect(pkg.description).toBe(
-      "Semantic search for Plaud notes/transcripts — always-on Mini indexer with local embeddings; search MCP runs only while a client is connected"
+      "Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings"
     );
+    expect(pkg.description).not.toMatch(/mini indexer/i);
     expect(pkg.description).not.toMatch(/apple tools/i);
     expect(pkg.repository.url).toBe("git+https://github.com/sfls1397/Plaud-Index-MCP.git");
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
     expect(Object.keys(deps).some((k) => /apple-tools/i.test(k))).toBe(false);
   });
 
-  it("does not wire Grok OAuth as Mini auth", () => {
+  it("does not wire Grok OAuth as indexer auth", () => {
     const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
     expect(readme).toMatch(/PLAUD_API_TOKEN/);
     expect(readme).toMatch(/Keychain/);

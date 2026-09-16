@@ -21,7 +21,7 @@ export interface HttpPlaudClientOptions {
 /**
  * HTTP Plaud client. Auth: `Authorization: Bearer ${PLAUD_API_TOKEN}`.
  *
- * Documented request shape (Mini wiring):
+ * Documented request shape (indexer wiring):
  * - `PLAUD_API_TOKEN` — Bearer token from Keychain/env (not Grok OAuth)
  * - `PLAUD_API_BASE` — default `https://api.plaud.ai`
  *
@@ -120,7 +120,7 @@ export class HttpPlaudClient implements PlaudClient {
 
   private async getFirstJson(paths: string[]): Promise<unknown> {
     if (!this.token) {
-      throw new Error("PLAUD_API_TOKEN is not set. Set it from Keychain or env on the Mini. Do not use Grok OAuth.");
+      throw new Error("PLAUD_API_TOKEN is not set. Set it from Keychain or env. Do not use Grok OAuth.");
     }
     let lastError: Error | null = null;
     for (const p of paths) {

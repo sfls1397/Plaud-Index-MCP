@@ -1,6 +1,6 @@
 # Plaud-Index-MCP
 
-Semantic search for Plaud notes/transcripts — always-on Mini indexer with local embeddings; search MCP runs only while a client is connected.
+Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings.
 
 - **npm package:** `plaud-index-mcp` `0.1.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
 - **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
@@ -14,7 +14,7 @@ Any MCP client (Grok Bot, Claude Desktop, Cursor, …) can search. This is not a
 | Topic | Default |
 | --- | --- |
 | Package / repo | npm `plaud-index-mcp` / GitHub `sfls1397/Plaud-Index-MCP` |
-| Mini auth | `PLAUD_API_TOKEN` in **Keychain or env only** — **not** Grok’s OAuth session, **not** `~/.plaud` MCP tokens |
+| Indexer auth | `PLAUD_API_TOKEN` in **Keychain or env only** — **not** Grok’s OAuth session, **not** `~/.plaud` MCP tokens |
 | Embed | `@xenova/transformers` + `Xenova/all-MiniLM-L6-v2` (local; not Claude/Grok). Model id stored in index metadata. **Bumping the model = release + full re-index.** |
 | Query tools | `plaud_search` (semantic, returns **Plaud file ids** + title/date/snippet), `plaud_get` (by file id). Optional `date_from` / `date_to`. |
 | Interval | Default **`5m`**. Clamp floor **30s**, ceiling **6h**, warn on clamp. Human forms `30s`, `5m`, `1h`. |
@@ -35,7 +35,7 @@ Copy these from Apple Tools MCP **as operations**, not as a library:
 
 | Process | Role |
 | --- | --- |
-| **Indexer** (`--mode=indexer` / `plaud-index-indexer`) | Always-on (Mac Mini). Acquires lock, pulls Plaud notes/transcripts, chunks, embeds locally, updates `~/.plaud-index-mcp/vector-index`. |
+| **Indexer** (`--mode=indexer` / `plaud-index-indexer`) | Always-on host. Acquires lock, pulls Plaud notes/transcripts, chunks, embeds locally, updates `~/.plaud-index-mcp/vector-index`. |
 | **Search MCP** (`plaud-index-mcp`) | On-demand stdio **semantic search**. Searches the **shared on-disk index**. Runs only while a client is connected (exits when stdin closes). |
 
 **Critical (same bar as Apple Tools MCP 1.2.1):** when the indexer holds the lock **and** the on-disk index is populated, query tools **succeed**. They must **not** fail with “index not available” just because this MCP process did not run its own first index cycle.
@@ -56,7 +56,7 @@ Test/dev only: `PLAUD_INDEX_HOME` relocates that directory.
 
 ## Install
 
-**Mac Mini (always-on indexer): global npm only — no git clone.**
+**Always-on indexer host (Peter’s Mac Mini): global npm only — no git clone.**
 
 ```bash
 npm install -g plaud-index-mcp
@@ -66,9 +66,9 @@ npm install -g plaud-index-mcp
 
 Requires Node.js 18+.
 
-## Mini auth (Keychain / env)
+## Indexer auth (Keychain / env)
 
-The indexer talks to Plaud with **`PLAUD_API_TOKEN`**. Mini auth is not Grok OAuth — do not reuse Grok Bot’s OAuth session.
+The indexer talks to Plaud with **`PLAUD_API_TOKEN`**. Auth is not Grok OAuth — do not reuse Grok Bot’s OAuth session.
 
 One-time Keychain item:
 
@@ -87,7 +87,7 @@ export PLAUD_API_BASE="https://api.plaud.ai"   # optional override
 
 ## Plaud API shape (expected)
 
-Live Plaud HTTP details vary (web API vs platform). This package uses a **pluggable `PlaudClient`**. Tests use `MockPlaudClient`. Mini wiring:
+Live Plaud HTTP details vary (web API vs platform). This package uses a **pluggable `PlaudClient`**. Tests use `MockPlaudClient`. Expected env + API shape:
 
 | Env | Meaning |
 | --- | --- |
@@ -108,7 +108,7 @@ For tests / dry runs: `PLAUD_CLIENT=mock` (no network, no secrets).
 ## Local embeddings
 
 - Library: `@xenova/transformers`
-- Default model: `Xenova/all-MiniLM-L6-v2` (384-d). First Mini start may download the model from Hugging Face (documented outbound).
+- Default model: `Xenova/all-MiniLM-L6-v2` (384-d). First indexer start may download the model from Hugging Face (documented outbound).
 - Index metadata (`vector-index/metadata.json`) stores `embedModel` + `embedDim`.
 - If the model id changes, the indexer **full re-indexes**. Treat a model bump as a **release step**.
 - Override: `PLAUD_EMBED_MODEL`. Tests: `PLAUD_EMBEDDER=mock`.
@@ -162,7 +162,7 @@ Logged at start:
 Effective index refresh interval: 5m (300000 ms) [source=config]
 ```
 
-Example Mini config (`~/.plaud-index-mcp/config.json`):
+Example indexer config (`~/.plaud-index-mcp/config.json`):
 
 ```json
 {
