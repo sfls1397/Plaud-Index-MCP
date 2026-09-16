@@ -6,6 +6,7 @@ import {
   EMPTY_METADATA,
   inDateRange,
   NOTES_TABLE,
+  scoreFromLanceDistance,
   type FileRecordView,
   type IndexMetadata,
   type SearchHit,
@@ -15,6 +16,14 @@ import {
 } from "./types.js";
 
 const LANCE_CONNECT_OPTIONS = { readConsistencyInterval: 0 };
+
+type LanceQuery = {
+  nearestTo?(vector: number[]): { limit(n: number): { toArray(): Promise<Record<string, unknown>[]> } };
+  where?(predicate: string): LanceQuery;
+  select?(columns: string[]): LanceQuery;
+  limit(n: number): { toArray(): Promise<Record<string, unknown>[]> };
+  toArray?(): Promise<Record<string, unknown>[]>;
+};
 
 type LanceDb = {
   tableNames(): Promise<string[]>;
@@ -26,13 +35,8 @@ type LanceDb = {
 type LanceTable = {
   add(data: Record<string, unknown>[]): Promise<unknown>;
   delete(predicate: string): Promise<unknown>;
-  query(): {
-    nearestTo?(vector: number[]): {
-      limit(n: number): { toArray(): Promise<Record<string, unknown>[]> };
-    };
-    limit(n: number): { toArray(): Promise<Record<string, unknown>[]> };
-    toArray(): Promise<Record<string, unknown>[]>;
-  };
+  countRows?(filter?: string): Promise<number>;
+  query(): LanceQuery;
   vectorSearch?(vector: number[]): { limit(n: number): { toArray(): Promise<Record<string, unknown>[]> } };
 };
 
@@ -95,17 +99,21 @@ export class LanceVectorStore implements VectorStore {
     const db = await this.connect();
     const names = await db.tableNames();
     const rows = chunks.map(chunkToRow);
+    let table: LanceTable;
     if (!names.includes(NOTES_TABLE)) {
-      await db.createTable(NOTES_TABLE, rows);
+      table = await db.createTable(NOTES_TABLE, rows);
     } else {
-      const table = await db.openTable(NOTES_TABLE);
+      table = await db.openTable(NOTES_TABLE);
       const ids = [...new Set(chunks.map((c) => c.fileId))];
       for (const id of ids) {
         await table.delete(`file_id = '${escapeSql(id)}'`);
       }
       await table.add(rows);
     }
-    this.writeMetaFromChunks(chunks, { merge: true });
+    const prev = this.readMeta();
+    await this.syncCountsFromTable(table, {
+      embedDim: prev.embedDim || chunks[0]?.vector.length || 0
+    });
   }
 
   async deleteFile(fileId: string): Promise<void> {
@@ -116,6 +124,7 @@ export class LanceVectorStore implements VectorStore {
     }
     const table = await db.openTable(NOTES_TABLE);
     await table.delete(`file_id = '${escapeSql(fileId)}'`);
+    await this.syncCountsFromTable(table);
   }
 
   async replaceAll(chunks: StoredChunk[], meta: Partial<IndexMetadata>): Promise<void> {
@@ -172,7 +181,7 @@ export class LanceVectorStore implements VectorStore {
         title: String(row.title || ""),
         createdAt,
         durationMs: typeof row.duration_ms === "number" ? row.duration_ms : null,
-        score: typeof row._distance === "number" ? 1 - row._distance : Number(row.score || 0),
+        score: typeof row._distance === "number" ? scoreFromLanceDistance(row._distance) : Number(row.score || 0),
         snippet: clipSnippet(String(row.text || "")),
         kind: String(row.kind || "transcript")
       });
@@ -187,7 +196,9 @@ export class LanceVectorStore implements VectorStore {
       return null;
     }
     const table = await db.openTable(NOTES_TABLE);
-    const rows = await table.query().limit(5000).toArray();
+    const rows = await queryTableRows(table, {
+      where: `file_id = '${escapeSql(fileId)}'`
+    });
     const mine = rows
       .filter((r) => String(r.file_id) === fileId)
       .sort((a, b) => Number(a.chunk_index || 0) - Number(b.chunk_index || 0));
@@ -214,7 +225,7 @@ export class LanceVectorStore implements VectorStore {
       return map;
     }
     const table = await db.openTable(NOTES_TABLE);
-    const rows = await table.query().limit(100000).toArray();
+    const rows = await queryTableRows(table, { columns: ["file_id", "fingerprint"] });
     for (const row of rows) {
       const id = String(row.file_id || "");
       if (id && !map.has(id)) {
@@ -267,18 +278,21 @@ export class LanceVectorStore implements VectorStore {
     fs.renameSync(tmp, this.metaFile);
   }
 
-  private writeMetaFromChunks(chunks: StoredChunk[], opts: { merge: boolean }): void {
-    const prev = opts.merge ? this.readMeta() : { ...EMPTY_METADATA };
-    const fileIds = new Set(chunks.map((c) => c.fileId));
+  private async syncCountsFromTable(
+    table: LanceTable,
+    extra: Partial<IndexMetadata> = {}
+  ): Promise<void> {
+    const prev = this.readMeta();
+    const rows = await queryTableRows(table, { columns: ["file_id"] });
+    const fileIds = new Set(rows.map((r) => String(r.file_id || "")).filter(Boolean));
     this.writeMeta({
       ...prev,
-      embedModel: prev.embedModel || "",
-      embedDim: prev.embedDim || chunks[0]?.vector.length || 0,
-      chunkCount: Math.max(prev.chunkCount, 0) + chunks.length,
-      noteCount: Math.max(prev.noteCount, fileIds.size),
-      populated: true,
+      ...extra,
+      chunkCount: rows.length,
+      noteCount: fileIds.size,
+      populated: rows.length > 0,
       updatedAt: new Date().toISOString(),
-      schemaVersion: 1
+      schemaVersion: prev.schemaVersion || 1
     });
   }
 }
@@ -300,6 +314,29 @@ function chunkToRow(chunk: StoredChunk): Record<string, unknown> {
 
 function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
+}
+
+async function queryTableRows(
+  table: LanceTable,
+  options: { where?: string; limit?: number; columns?: string[] } = {}
+): Promise<Record<string, unknown>[]> {
+  let q: LanceQuery = table.query();
+  if (options.where) {
+    if (typeof q.where !== "function") {
+      throw new Error("LanceDB query.where is required for file_id lookups");
+    }
+    q = q.where(options.where);
+  }
+  if (options.columns && typeof q.select === "function") {
+    q = q.select(options.columns);
+  }
+  if (options.limit != null) {
+    return q.limit(options.limit).toArray();
+  }
+  if (typeof q.toArray === "function") {
+    return q.toArray();
+  }
+  return q.limit(1_000_000).toArray();
 }
 
 function asString(value: unknown): string | null {

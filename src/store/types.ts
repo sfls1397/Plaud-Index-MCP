@@ -146,6 +146,29 @@ export function cosine(a: number[], b: number[]): number {
   return dot / denom;
 }
 
+/**
+ * Convert LanceDB ANN `_distance` to a similarity score comparable to the
+ * file-backend cosine.
+ *
+ * LanceDB's default vector metric is L2. MiniLM embeddings are unit-normalized,
+ * so cosine = 1 - L2² / 2. Clamp to [0, 1] so scores never go negative (raw
+ * `1 - L2` does when L2 > 1). File-backend scores are exact cosine
+ * (`dot / (|a||b|)`), not this conversion.
+ */
+export function scoreFromLanceDistance(distance: number): number {
+  if (!Number.isFinite(distance)) {
+    return 0;
+  }
+  const cosineLike = 1 - (distance * distance) / 2;
+  if (cosineLike <= 0) {
+    return 0;
+  }
+  if (cosineLike >= 1) {
+    return 1;
+  }
+  return cosineLike;
+}
+
 export function collapseHitsByFile(hits: SearchHit[], limit: number): SearchHit[] {
   const best = new Map<string, SearchHit>();
   for (const hit of hits) {

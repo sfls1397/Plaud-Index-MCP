@@ -49,7 +49,7 @@ All under `~/.plaud-index-mcp/` (config cannot override the directory):
 | Path | Purpose |
 | --- | --- |
 | `~/.plaud-index-mcp/config.json` | `indexInterval` (and optional `indexIntervalMs`) |
-| `~/.plaud-index-mcp/vector-index/` | On-disk vector index (LanceDB when native bindings load; file-backed cosine store otherwise) |
+| `~/.plaud-index-mcp/vector-index/` | On-disk vector index (LanceDB when native bindings load; file-backed cosine store otherwise). Search scores: LanceDB is L2 converted to cosine-like `[0, 1]`; file backend is exact cosine. |
 | `~/.plaud-index-mcp/indexer.lock` | Indexer refresh lock |
 
 Test/dev only: `PLAUD_INDEX_HOME` relocates that directory.
@@ -135,6 +135,15 @@ Semantic search. **Returns Plaud `file_id`s**, plus title, `created_at`, score, 
 | `limit` | no | Default 8, max 25 |
 
 Each hit includes `fetch`: use remote Plaud MCP `get_transcript` / `get_note` / `get_file` with that `file_id` for full text.
+
+**Scores** are ranking hints (higher is closer), not probabilities:
+
+| Backend | When | Score |
+| --- | --- | --- |
+| **LanceDB** | Native bindings load (default on-disk index) | ANN uses **L2** distance. The tool converts that to a cosine-like similarity for unit MiniLM vectors: `1 − L2² / 2`, then **clamps to `[0, 1]`**. Raw `1 − L2` can go negative when L2 > 1; that is not returned. |
+| **File backend** | Tests, or when LanceDB native bindings are unavailable | Exact **cosine** of the query vector vs each chunk (`dot / (|a||b|)`). MiniLM embeddings are L2-normalized, so this is typically in `[0, 1]`. |
+
+Do not compare scores across backends.
 
 ### `plaud_get`
 

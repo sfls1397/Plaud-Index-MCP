@@ -106,6 +106,32 @@ describe("AC: query while indexer holds the lock", () => {
     expect(gate.message).toBe(BUILDING_INITIAL_INDEX_MESSAGE);
   });
 
+  it("fallback mid first cycle refuses with Building, not index not available", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "plaud-building-"));
+    const store = new FileVectorStore(dir);
+    expect(await store.isReady()).toBe(false);
+    const session: QuerySession = {
+      sessionIndexComplete: false,
+      ownsIndexLock: true,
+      isFirstEverRun: true
+    };
+    const text = await runPlaudSearch(store, createHashEmbedder(), session, { query: "anything" });
+    expect(text).toBe(BUILDING_INITIAL_INDEX_MESSAGE);
+    expect(text).not.toMatch(/index not available/i);
+  });
+
+  it("empty index + owns lock + complete-too-early looks like unavailable (QA mid-cycle bug)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "plaud-complete-early-"));
+    const store = new FileVectorStore(dir);
+    const session: QuerySession = {
+      sessionIndexComplete: true,
+      ownsIndexLock: true,
+      isFirstEverRun: true
+    };
+    const text = await runPlaudSearch(store, createHashEmbedder(), session, { query: "anything" });
+    expect(text).toBe(INDEX_UNAVAILABLE_MESSAGE);
+  });
+
   it("overlapping cycles skip", () => {
     const nested = beginIndexCycle(true, () => {});
     expect(nested).toEqual({ started: false, indexingInProgress: true });

@@ -89,13 +89,15 @@ async function main(): Promise<void> {
     beginOwnedIndexing({
       startHeartbeat: () => lock.startHeartbeat(DEFAULT_LOCK_HEARTBEAT_MS),
       startBackground: () => {
+        // Cycle completion is synced from the daemon's applyEnd — not when
+        // start() resolves. startBackground returns immediately, before the
+        // first index cycle finishes.
         void runIndexerDaemon({
           env,
           indexerMode: false,
           store,
-          lock
-        }).then(() => {
-          session.sessionIndexComplete = true;
+          lock,
+          querySession: session
         });
       }
     });

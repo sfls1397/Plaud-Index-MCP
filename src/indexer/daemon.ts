@@ -13,11 +13,18 @@ import {
 import { openVectorStore } from "../store/openStore.js";
 import type { VectorStore } from "../store/types.js";
 
+export interface QuerySessionFlags {
+  sessionIndexComplete: boolean;
+  ownsIndexLock: boolean;
+  isFirstEverRun: boolean;
+}
+
 export interface IndexerState {
   indexingInProgress: boolean;
   sessionIndexComplete: boolean;
   ownsIndexLock: boolean;
   isFirstEverRun: boolean;
+  stop(): void;
 }
 
 export async function runOneRefresh(options: {
@@ -53,6 +60,7 @@ export async function runIndexerDaemon(options: {
   indexerMode?: boolean;
   store?: VectorStore;
   lock?: ReturnType<typeof createIndexerLock>;
+  querySession?: QuerySessionFlags;
 } = {}): Promise<IndexerState> {
   const env = options.env || process.env;
   const indexerMode = options.indexerMode !== false;
@@ -66,15 +74,33 @@ export async function runIndexerDaemon(options: {
       log: (msg) => console.error(msg)
     });
 
+  let store: VectorStore | null = options.store || null;
+  let indexTimer: ReturnType<typeof setInterval> | null = null;
+
+  function stop(): void {
+    if (indexTimer) {
+      clearInterval(indexTimer);
+      indexTimer = null;
+    }
+  }
+
   const state: IndexerState = {
     indexingInProgress: false,
     sessionIndexComplete: false,
     ownsIndexLock: lock.ownsLock,
-    isFirstEverRun: true
+    isFirstEverRun: true,
+    stop
   };
 
-  let store: VectorStore | null = options.store || null;
-  let indexTimer: ReturnType<typeof setInterval> | null = null;
+  function syncQuerySession(): void {
+    const session = options.querySession;
+    if (!session) {
+      return;
+    }
+    session.sessionIndexComplete = state.sessionIndexComplete;
+    session.ownsIndexLock = state.ownsIndexLock;
+    session.isFirstEverRun = state.isFirstEverRun;
+  }
 
   function acquireLock(): boolean {
     const ok = lock.acquire();
@@ -115,6 +141,8 @@ export async function runIndexerDaemon(options: {
     try {
       const vectorStore = await ensureStore();
       state.isFirstEverRun = !(await vectorStore.isReady());
+      state.ownsIndexLock = lock.ownsLock;
+      syncQuerySession();
       await runOneRefresh({ env, store: vectorStore });
       applyEnd(true);
     } catch (err) {
@@ -136,6 +164,7 @@ export async function runIndexerDaemon(options: {
     if (next.isFirstEverRun === false) {
       state.isFirstEverRun = false;
     }
+    syncQuerySession();
   }
 
   function startBackground(): void {
@@ -147,7 +176,7 @@ export async function runIndexerDaemon(options: {
   }
 
   process.on("exit", () => {
-    if (indexTimer) clearInterval(indexTimer);
+    stop();
     lock.stopHeartbeat();
     if (indexerMode) {
       releaseLock();
