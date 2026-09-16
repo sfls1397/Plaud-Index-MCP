@@ -39,7 +39,7 @@ describe("no secrets in source, tests, or examples", () => {
     expect(pkg.name).toBe("plaud-index-mcp");
     expect(pkg.version).toBe("0.1.0");
     expect(pkg.description).toBe(
-      "Always-on Plaud note/transcript indexer with local embeddings and a short-lived search MCP"
+      "Semantic search for Plaud notes/transcripts — always-on Mini indexer with local embeddings; search MCP runs only while a client is connected"
     );
     expect(pkg.description).not.toMatch(/apple tools/i);
     expect(pkg.repository.url).toBe("git+https://github.com/sfls1397/Plaud-Index-MCP.git");

@@ -1,11 +1,11 @@
 # Plaud-Index-MCP
 
-Always-on Plaud note/transcript indexer with local embeddings and a short-lived search MCP.
+Semantic search for Plaud notes/transcripts — always-on Mini indexer with local embeddings; search MCP runs only while a client is connected.
 
 - **npm package:** `plaud-index-mcp` `0.1.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
 - **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
 
-Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, read-only query MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
+Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, on-demand search MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
 
 Any MCP client (Grok Bot, Claude Desktop, Cursor, …) can search. This is not a single-client product.
 
@@ -26,21 +26,21 @@ Search is **id-first**: Grok (or any client) takes `file_id` from `plaud_search`
 Copy these from Apple Tools MCP **as operations**, not as a library:
 
 1. **Config interval** in `~/.plaud-index-mcp/config.json` (`indexInterval`), env overrides file, clamp + warn.
-2. **LaunchAgent** (`RunAtLoad` + `KeepAlive`) runs the **indexer daemon only** — never a sleep-pipe around query MCP stdio.
+2. **LaunchAgent** (`RunAtLoad` + `KeepAlive`) runs the **indexer daemon only** — never a sleep-pipe around the on-demand search MCP.
 3. **Lock** (`~/.plaud-index-mcp/indexer.lock`) so only one refresher runs.
 4. **Local embed** + persist model id; bump → full re-index.
-5. **Read-only** short-lived query MCP; exits on stdin close.
+5. **Read-only on-demand search MCP** — runs only while a client is connected; exits on stdin close.
 
 ## Architecture
 
 | Process | Role |
 | --- | --- |
 | **Indexer** (`--mode=indexer` / `plaud-index-indexer`) | Always-on (Mac Mini). Acquires lock, pulls Plaud notes/transcripts, chunks, embeds locally, updates `~/.plaud-index-mcp/vector-index`. |
-| **Query MCP** (`plaud-index-mcp`) | Short-lived stdio. Searches the **shared on-disk index**. Exits when the client closes stdin. |
+| **Search MCP** (`plaud-index-mcp`) | On-demand stdio **semantic search**. Searches the **shared on-disk index**. Runs only while a client is connected (exits when stdin closes). |
 
 **Critical (same bar as Apple Tools MCP 1.2.1):** when the indexer holds the lock **and** the on-disk index is populated, query tools **succeed**. They must **not** fail with “index not available” just because this MCP process did not run its own first index cycle.
 
-**Fallback:** if no indexer is running and the query MCP wins the lock, it runs a **local index cycle** (then searches). Documented and tested.
+**Fallback:** if no indexer is running and the search MCP wins the lock, it runs a **local index cycle** (then searches). Documented and tested.
 
 ## Paths
 
@@ -182,11 +182,11 @@ npm run indexer
 
 LaunchAgent: `RunAtLoad` + `KeepAlive` on **this** process only. Use absolute paths (`which node`, `npm root -g`). Example: `examples/com.plaud-index-mcp.indexer.plist`.
 
-Do **not** wrap query MCP stdio in a sleep-pipe KeepAlive.
+Do **not** wrap the on-demand search MCP in a sleep-pipe KeepAlive.
 
 Only one index cycle runs at a time (`indexing already in progress, skipping cycle`).
 
-## Query MCP (stdio)
+## On-demand search MCP (stdio)
 
 ```bash
 npx -y plaud-index-mcp
@@ -207,7 +207,7 @@ Example client config:
 }
 ```
 
-Exits on stdin close. The indexer daemon does **not** (LaunchAgent often attaches stdin to `/dev/null`).
+Runs only while a client is connected (exits on stdin close). The always-on indexer daemon does **not** (LaunchAgent often attaches stdin to `/dev/null`).
 
 ## Dual-host deploy
 

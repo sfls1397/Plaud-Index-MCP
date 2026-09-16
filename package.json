@@ -1,7 +1,7 @@
 {
   "name": "plaud-index-mcp",
   "version": "0.1.0",
-  "description": "Always-on Plaud note/transcript indexer with local embeddings and a short-lived search MCP",
+  "description": "Semantic search for Plaud notes/transcripts — always-on Mini indexer with local embeddings; search MCP runs only while a client is connected",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
