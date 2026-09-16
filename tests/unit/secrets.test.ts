@@ -38,6 +38,11 @@ describe("no secrets in source, tests, or examples", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     expect(pkg.name).toBe("plaud-index-mcp");
     expect(pkg.version).toBe("0.1.0");
+    expect(pkg.description).toBe(
+      "Always-on Plaud note/transcript indexer with local embeddings and a short-lived search MCP"
+    );
+    expect(pkg.description).not.toMatch(/apple tools/i);
+    expect(pkg.repository.url).toBe("git+https://github.com/sfls1397/Plaud-Index-MCP.git");
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
     expect(Object.keys(deps).some((k) => /apple-tools/i.test(k))).toBe(false);
   });

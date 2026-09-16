@@ -1,7 +1,7 @@
 {
   "name": "plaud-index-mcp",
   "version": "0.1.0",
-  "description": "Always-on Plaud indexer plus short-lived stdio query MCP for local semantic search of notes and transcripts",
+  "description": "Always-on Plaud note/transcript indexer with local embeddings and a short-lived search MCP",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
@@ -12,12 +12,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sfls1397/plaud-index-mcp.git"
+    "url": "git+https://github.com/sfls1397/Plaud-Index-MCP.git"
   },
   "bugs": {
-    "url": "https://github.com/sfls1397/plaud-index-mcp/issues"
+    "url": "https://github.com/sfls1397/Plaud-Index-MCP/issues"
   },
-  "homepage": "https://github.com/sfls1397/plaud-index-mcp#readme",
+  "homepage": "https://github.com/sfls1397/Plaud-Index-MCP#readme",
   "keywords": [
     "mcp",
     "model-context-protocol",

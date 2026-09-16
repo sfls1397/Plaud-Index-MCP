@@ -1,9 +1,11 @@
-# plaud-index-mcp
+# Plaud-Index-MCP
 
-Always-on **Plaud indexer** plus a **short-lived stdio query MCP**. Separate product from Apple Tools MCP: same **ops patterns** (config interval, LaunchAgent, lock, local embed + reindex-on-bump, read-only query MCP), **no shared code or dependency**.
+Always-on Plaud note/transcript indexer with local embeddings and a short-lived search MCP.
 
-Package: `plaud-index-mcp` `0.1.0`  
-Repo: [sfls1397/plaud-index-mcp](https://github.com/sfls1397/plaud-index-mcp)
+- **npm package:** `plaud-index-mcp` `0.1.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
+- **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
+
+Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, read-only query MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
 
 Any MCP client (Grok Bot, Claude Desktop, Cursor, …) can search. This is not a single-client product.
 
@@ -11,7 +13,7 @@ Any MCP client (Grok Bot, Claude Desktop, Cursor, …) can search. This is not a
 
 | Topic | Default |
 | --- | --- |
-| Package / repo | `plaud-index-mcp` / `sfls1397/plaud-index-mcp` |
+| Package / repo | npm `plaud-index-mcp` / GitHub `sfls1397/Plaud-Index-MCP` |
 | Mini auth | `PLAUD_API_TOKEN` in **Keychain or env only** — **not** Grok’s OAuth session, **not** `~/.plaud` MCP tokens |
 | Embed | `@xenova/transformers` + `Xenova/all-MiniLM-L6-v2` (local; not Claude/Grok). Model id stored in index metadata. **Bumping the model = release + full re-index.** |
 | Query tools | `plaud_search` (semantic, returns **Plaud file ids** + title/date/snippet), `plaud_get` (by file id). Optional `date_from` / `date_to`. |
@@ -229,8 +231,8 @@ Publish / version bumps beyond `0.1.0` are locked by Peter. This repo does not i
 ## Development
 
 ```bash
-git clone https://github.com/sfls1397/plaud-index-mcp.git
-cd plaud-index-mcp
+git clone https://github.com/sfls1397/Plaud-Index-MCP.git
+cd Plaud-Index-MCP
 npm install
 npm test
 npm run build
