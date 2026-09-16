@@ -208,7 +208,7 @@ If no indexer is running and the search MCP wins the lock, it runs a **local ind
 | `Plaud auth expired. Re-run: plaud-index-mcp login` | Refresh/401 rejected the session | Sign in again from Terminal on the host |
 | `Plaud index not available` | Index empty / indexer not running | Finish login, reload LaunchAgent, wait for a cycle, search **while the lock is held** |
 
-On `1.1.0`, Keychain write went through JXA `SecItemAdd` (can return **-50** even after Allow). **`1.1.1`** writes with `security -i` feeding `add-generic-password … -w '<secret>'` on **stdin** (Apple’s `-w -` is the literal password `-`, not stdin). After write, login **reads the item back** and fails with a Keychain-write error if the stored value is `-`, empty, or not the token JSON.
+On `1.1.0`, Keychain write went through JXA `SecItemAdd` (can return **-50** even after Allow). **`1.1.1`** writes with `security -i` feeding `add-generic-password … -w '<secret>'` on **stdin** (Apple’s `-w -` is the literal password `-`, not stdin). Quotes follow `security -i` rules (`\\` and `\'` inside `'…'`). After write, login **reads the item back** and fails with a Keychain-write error if the stored value is `-`, empty, or not the token JSON. `security -i` command lines are capped at **4096 bytes**; oversized token JSON fails **before** write with a clear Keychain error (not a mysterious read-back mismatch).
 
 ## Auth model (short)
 

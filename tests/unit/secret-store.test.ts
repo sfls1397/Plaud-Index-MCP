@@ -12,13 +12,17 @@ import {
   keychainSecurityStdinCommand,
   MemorySecretStore,
   quoteSecurityCliWord,
+  SECURITY_INTERACTIVE_LINE_MAX,
   securityArgvUsesLiteralDashPassword,
+  securityInteractiveCommandFits,
+  tokenizeSecurityInteractiveLine,
   writeKeychainPassword,
   type ExecFileAsync,
   type SpawnImpl
 } from "../../src/auth/secretStore.js";
 import {
   KEYCHAIN_ACCOUNT_OAUTH,
+  KEYCHAIN_LINE_TOO_LONG_MESSAGE,
   KEYCHAIN_READBACK_FAILED_MESSAGE,
   KEYCHAIN_SERVICE,
   KEYCHAIN_WRITE_FAILED_MESSAGE
@@ -86,6 +90,66 @@ describe("Keychain secret write", () => {
     );
     expect(src).not.toMatch(/"-w",\s*"-"/);
     expect(src).not.toMatch(/-w -"/);
+  });
+
+  it("quotes for security -i (\\\\ and \\') not POSIX shell '\\'' concatenation", () => {
+    expect(quoteSecurityCliWord("plain")).toBe("'plain'");
+    expect(quoteSecurityCliWord("a'b")).toBe("'a\\'b'");
+    expect(quoteSecurityCliWord("a'b")).not.toBe("'a'\\''b'");
+    expect(quoteSecurityCliWord("a\\b")).toBe("'a\\\\b'");
+    expect(quoteSecurityCliWord("a\\'b")).toBe("'a\\\\\\'b'");
+    const samples = ["plain", "a'b", "a\\b", "a\\'b", '{"k":"v\'"}', "it's", "", "space in json"];
+    for (const sample of samples) {
+      const quoted = quoteSecurityCliWord(sample);
+      const tokens = tokenizeSecurityInteractiveLine(`cmd ${quoted}\n`);
+      expect(tokens).toEqual(["cmd", sample]);
+    }
+    const json = serializeTokenSet({ access_token: "x'y\\z", refresh_token: "r" });
+    const line = keychainSecurityStdinCommand({
+      service: KEYCHAIN_SERVICE,
+      account: KEYCHAIN_ACCOUNT_OAUTH,
+      value: json
+    });
+    const words = tokenizeSecurityInteractiveLine(line);
+    expect(words[0]).toBe("add-generic-password");
+    expect(words.at(-1)).toBe(json);
+    expect(words).toContain(KEYCHAIN_SERVICE);
+    expect(words).toContain(KEYCHAIN_ACCOUNT_OAUTH);
+  });
+
+  it("preflight-rejects security -i commands at the 4096-byte line limit before spawn", async () => {
+    const { spawnImpl, calls } = captureSpawn([0]);
+    const oversized = "A".repeat(SECURITY_INTERACTIVE_LINE_MAX);
+    await expect(
+      writeKeychainPassword({
+        service: KEYCHAIN_SERVICE,
+        account: KEYCHAIN_ACCOUNT_OAUTH,
+        value: oversized,
+        spawnImpl,
+        readBack: async () => {
+          throw new Error("read-back should not run after preflight");
+        }
+      })
+    ).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(SecretStoreWriteError);
+      expect((err as Error).message).toMatch(/Keychain write failed/);
+      expect((err as Error).message).toContain(KEYCHAIN_LINE_TOO_LONG_MESSAGE.slice(0, 40));
+      expect((err as Error).message).toMatch(/4096/);
+      expect((err as Error).message).not.toContain(oversized);
+      expect((err as Error).message).not.toMatch(/Token exchange failed/i);
+      return true;
+    });
+    expect(calls).toHaveLength(0);
+
+    const fitting = serializeTokenSet({ access_token: "fits" });
+    const cmd = keychainSecurityStdinCommand({
+      service: KEYCHAIN_SERVICE,
+      account: KEYCHAIN_ACCOUNT_OAUTH,
+      value: fitting,
+      update: true
+    });
+    expect(securityInteractiveCommandFits(cmd)).toBe(true);
+    expect(Buffer.byteLength(cmd, "utf8")).toBeLessThan(SECURITY_INTERACTIVE_LINE_MAX);
   });
 
   it("feeds add-generic-password -w '<secret>' to security -i stdin, not argv", async () => {

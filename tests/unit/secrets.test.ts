@@ -84,7 +84,8 @@ describe("no secrets in source, tests, or examples", () => {
     expect(setup).toMatch(/Keychain write failed/);
     expect(setup).toMatch(/ssh -L 8199:localhost:8199/);
     expect(setup).toMatch(/~\/\.local\/node/);
-    expect(setup).toMatch(/plaud-index-mcp@1\.1\.1/);
+    expect(setup).toMatch(/security -i/);
+    expect(setup).toMatch(/4096/);
     expect(setup).toMatch(/does not replace/);
     expect(setup).not.toMatch(/Office Manager/i);
     expect(setup).not.toMatch(/notion\.so/i);

@@ -54,6 +54,10 @@ export const SECRET_STORE_WRITE_FAILED_MESSAGE =
 export const KEYCHAIN_READBACK_FAILED_MESSAGE =
   "Keychain write failed: read-back did not match the saved token (empty, '-', or a different payload). Re-run `plaud-index-mcp login` from a logged-in GUI/Terminal session.";
 
+/** `security -i` command line would exceed Apple's 4096-byte buffer. */
+export const KEYCHAIN_LINE_TOO_LONG_MESSAGE =
+  "Keychain write failed: OAuth token JSON is too large for macOS `security -i` (4096-byte command line). The item was not written. Re-run `plaud-index-mcp login` from a logged-in GUI/Terminal session.";
+
 /**
  * Always-on host login notes. Shown in `login --help` and during login.
  */

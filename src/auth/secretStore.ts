@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
-import { KEYCHAIN_ACCOUNT_OAUTH, KEYCHAIN_READBACK_FAILED_MESSAGE, KEYCHAIN_SERVICE, KEYCHAIN_WRITE_FAILED_MESSAGE } from "./constants.js";
+import { KEYCHAIN_ACCOUNT_OAUTH, KEYCHAIN_LINE_TOO_LONG_MESSAGE, KEYCHAIN_READBACK_FAILED_MESSAGE, KEYCHAIN_SERVICE, KEYCHAIN_WRITE_FAILED_MESSAGE } from "./constants.js";
 import { SecretStoreWriteError, isSecretStoreWriteError } from "./errors.js";
 import { redactSecrets } from "../sanitize.js";
 import { getPlaudIndexDir } from "../paths.js";
@@ -101,11 +101,89 @@ export function securityArgvUsesLiteralDashPassword(args: readonly string[]): bo
 }
 
 /**
- * Quote one `security -i` word. JSON tokens use double quotes, so single quotes
- * keep the secret off process argv and intact on the interactive command line.
+ * Apple `security -i` reads one command line into a 4096-byte buffer
+ * (`fgets(buf, 4096)` → at most 4095 bytes + NUL). Refuse at 4096 or more.
+ */
+export const SECURITY_INTERACTIVE_LINE_MAX = 4096;
+
+/**
+ * Quote one word for `security -i`.
+ * Apple's tokenizer: `'` opens/closes a quoted word; inside it, `\\` and `\'`
+ * escape backslash and quote. This is not POSIX shell `'\''` concatenation.
  */
 export function quoteSecurityCliWord(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * Split a `security -i` line the way Apple's tokenizer does: whitespace
+ * separates words; `'` quotes; `\\` / `\'` (and `\` + next char) escape.
+ */
+export function tokenizeSecurityInteractiveLine(line: string): string[] {
+  const src = line.endsWith("\n") ? line.slice(0, -1) : line;
+  const out: string[] = [];
+  let cur = "";
+  let inWord = false;
+  let inQuote = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuote) {
+      if (c === "\\" && i + 1 < src.length) {
+        cur += src[i + 1];
+        i += 1;
+        continue;
+      }
+      if (c === "'") {
+        inQuote = false;
+        continue;
+      }
+      cur += c;
+      continue;
+    }
+    if (c === "\\" && i + 1 < src.length) {
+      cur += src[i + 1];
+      inWord = true;
+      i += 1;
+      continue;
+    }
+    if (c === "'") {
+      inQuote = true;
+      inWord = true;
+      continue;
+    }
+    if (c === " " || c === "\t") {
+      if (inWord) {
+        out.push(cur);
+        cur = "";
+        inWord = false;
+      }
+      continue;
+    }
+    cur += c;
+    inWord = true;
+  }
+  if (inWord) {
+    out.push(cur);
+  }
+  return out;
+}
+
+export function securityInteractiveCommandByteLength(command: string): number {
+  return Buffer.byteLength(command, "utf8");
+}
+
+export function securityInteractiveCommandFits(command: string): boolean {
+  return securityInteractiveCommandByteLength(command) < SECURITY_INTERACTIVE_LINE_MAX;
+}
+
+function assertSecurityInteractiveCommandFits(command: string): void {
+  const bytes = securityInteractiveCommandByteLength(command);
+  if (bytes < SECURITY_INTERACTIVE_LINE_MAX) {
+    return;
+  }
+  throw new SecretStoreWriteError(
+    `${KEYCHAIN_LINE_TOO_LONG_MESSAGE} Details: command is ${bytes} bytes (max ${SECURITY_INTERACTIVE_LINE_MAX - 1}).`
+  );
 }
 
 /** argv for interactive mode: secret must never appear here. */
@@ -116,6 +194,7 @@ export function keychainSecurityInteractiveArgs(): string[] {
 /**
  * Command fed to `security -i` on stdin. `-w` is last so a password that starts
  * with `-` is not parsed as a flag. Never uses `-w -` as a stdin-password idiom.
+ * Words are quoted with `quoteSecurityCliWord` (`\\` / `\'`, not POSIX `'\''`).
  */
 export function keychainSecurityStdinCommand(options: {
   service: string;
@@ -264,6 +343,8 @@ export async function writeKeychainPassword(options: {
     value: options.value,
     update: true
   });
+  assertSecurityInteractiveCommandFits(addCmd);
+  assertSecurityInteractiveCommandFits(updateCmd);
 
   let lastDetail = "";
   try {
