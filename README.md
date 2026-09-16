@@ -218,11 +218,12 @@ Runs only while a client is connected (exits on stdin close). The always-on inde
 
 ## Publish
 
-npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`).
+npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`). The publish job uses **Node 24** so npm is new enough for trusted publishing.
 
-1. Create GitHub Release **`v1.0.0`** (tag `v1.0.0`; package version is `1.0.0`).
-2. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
-3. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.0.0`, reload the indexer LaunchAgent, then **live search while the lock is held**.
+1. After this workflow is on `main`, bootstrap the package on npmjs if it does not exist yet (trusted publisher config needs the package name). Attach GitHub Actions for `sfls1397/Plaud-Index-MCP` as the trusted publisher.
+2. Create GitHub Release **`v1.0.0`** (tag `v1.0.0`; package version is `1.0.0`).
+3. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
+4. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.0.0`, reload the indexer LaunchAgent, then **live search while the lock is held**.
 
 Later version bumps are locked by Peter. This repo does not invent them.
 
