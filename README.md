@@ -216,15 +216,23 @@ Example client config:
 
 Runs only while a client is connected (exits on stdin close). The always-on indexer daemon does **not** (LaunchAgent often attaches stdin to `/dev/null`).
 
+## Publish
+
+npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`).
+
+1. Create GitHub Release **`v0.1.0`** (tag `v0.1.0`; package version is already `0.1.0`).
+2. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
+3. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@0.1.0`, reload the indexer LaunchAgent, then **live search while the lock is held**.
+
+Later version bumps are locked by Peter. This repo does not invent them.
+
 ## Deploy / verify (always-on host only)
 
-This product has **no MacBook Development clone**. After npm publish (when Peter asks), required verify is the **always-on host only** (Peter’s deploy host today: Mac Mini):
+This product has **no MacBook Development clone**. After npm publish, required verify is the **always-on host only** (Peter’s deploy host today: Mac Mini):
 
 1. `npm install -g plaud-index-mcp@<version>` (no clone)
 2. Reload the indexer LaunchAgent
 3. **Live search while the indexer holds the lock** (query tools must succeed against the populated index)
-
-Publish / version bumps beyond `0.1.0` are locked by Peter. This repo does not invent them.
 
 ## Security
 
