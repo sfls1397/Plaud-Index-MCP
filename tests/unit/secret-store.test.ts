@@ -1,15 +1,28 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   KeychainSecretStore,
-  keychainSecurityWriteArgs,
+  keychainReadBackMatches,
+  keychainSecurityInteractiveArgs,
+  keychainSecurityStdinCommand,
   MemorySecretStore,
+  quoteSecurityCliWord,
+  securityArgvUsesLiteralDashPassword,
   writeKeychainPassword,
+  type ExecFileAsync,
   type SpawnImpl
 } from "../../src/auth/secretStore.js";
-import { KEYCHAIN_ACCOUNT_OAUTH, KEYCHAIN_SERVICE, KEYCHAIN_WRITE_FAILED_MESSAGE } from "../../src/auth/constants.js";
+import {
+  KEYCHAIN_ACCOUNT_OAUTH,
+  KEYCHAIN_READBACK_FAILED_MESSAGE,
+  KEYCHAIN_SERVICE,
+  KEYCHAIN_WRITE_FAILED_MESSAGE
+} from "../../src/auth/constants.js";
 import { SecretStoreWriteError } from "../../src/auth/errors.js";
 import { PlaudTokenStore } from "../../src/auth/tokenStore.js";
 import { serializeTokenSet } from "../../src/auth/oauth.js";
@@ -53,62 +66,144 @@ function captureSpawn(exits: Array<number | "epipe"> = [0]): {
   return { spawnImpl, calls };
 }
 
+function execFileReturning(stored: string): ExecFileAsync {
+  return async (_file, args) => {
+    if (args.includes("find-generic-password") && args.includes("-w")) {
+      return { stdout: `${stored}\n`, stderr: "" };
+    }
+    return { stdout: "", stderr: "" };
+  };
+}
+
 describe("Keychain secret write", () => {
-  it("hands the token to security add-generic-password on stdin (-w -), not argv", async () => {
-    const secret = ["kc", "token", "value"].join("-");
+  it("never treats -w - as stdin (Apple stores the character dash)", () => {
+    expect(securityArgvUsesLiteralDashPassword(["add-generic-password", "-w", "-"])).toBe(true);
+    expect(securityArgvUsesLiteralDashPassword(keychainSecurityInteractiveArgs())).toBe(false);
+    expect(keychainSecurityInteractiveArgs()).toEqual(["-i"]);
+    const src = fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "../../src/auth/secretStore.ts"),
+      "utf8"
+    );
+    expect(src).not.toMatch(/"-w",\s*"-"/);
+    expect(src).not.toMatch(/-w -"/);
+  });
+
+  it("feeds add-generic-password -w '<secret>' to security -i stdin, not argv", async () => {
+    const secret = serializeTokenSet({
+      access_token: ["kc", "token"].join("-"),
+      refresh_token: ["kc", "refresh"].join("-")
+    });
     const { spawnImpl, calls } = captureSpawn([0]);
     await writeKeychainPassword({
       service: KEYCHAIN_SERVICE,
       account: KEYCHAIN_ACCOUNT_OAUTH,
       value: secret,
-      spawnImpl
+      spawnImpl,
+      readBack: async () => secret
     });
     expect(calls).toHaveLength(1);
     expect(calls[0].command).toBe("/usr/bin/security");
-    expect(calls[0].args).toEqual(
-      keychainSecurityWriteArgs({ service: KEYCHAIN_SERVICE, account: KEYCHAIN_ACCOUNT_OAUTH })
-    );
-    expect(calls[0].args).toContain("add-generic-password");
-    expect(calls[0].args).toContain("-w");
-    expect(calls[0].args).toContain("-");
+    expect(calls[0].args).toEqual(["-i"]);
+    expect(securityArgvUsesLiteralDashPassword(calls[0].args)).toBe(false);
     expect(calls[0].args.join(" ")).not.toContain(secret);
-    expect(calls[0].args.join(" ")).not.toMatch(/osascript|JavaScript|SecItemAdd/);
-    expect(calls[0].stdin).toBe(secret);
+    expect(calls[0].args).not.toContain("-w");
+    expect(calls[0].args).not.toContain("-");
+    expect(calls[0].stdin).toBe(
+      keychainSecurityStdinCommand({
+        service: KEYCHAIN_SERVICE,
+        account: KEYCHAIN_ACCOUNT_OAUTH,
+        value: secret
+      })
+    );
+    expect(calls[0].stdin).toContain(`-w ${quoteSecurityCliWord(secret)}`);
+    expect(calls[0].stdin).not.toMatch(/-w\s+-(?:\s|$)/);
+    expect(calls[0].stdin).toContain(secret);
+    expect(calls[0].stdin).toMatch(/add-generic-password/);
   });
 
-  it("retries with -U when the generic password already exists", async () => {
-    const secret = ["update", "token", "value"].join("-");
+  it("retries with -U on stdin when the generic password already exists", async () => {
+    const secret = serializeTokenSet({ access_token: ["update", "token"].join("-") });
     const { spawnImpl, calls } = captureSpawn([1, 0]);
     await writeKeychainPassword({
       service: KEYCHAIN_SERVICE,
       account: KEYCHAIN_ACCOUNT_OAUTH,
       value: secret,
-      spawnImpl
+      spawnImpl,
+      readBack: async () => secret
     });
     expect(calls).toHaveLength(2);
-    expect(calls[0].args).not.toContain("-U");
-    expect(calls[1].args).toEqual(
-      keychainSecurityWriteArgs({
-        service: KEYCHAIN_SERVICE,
-        account: KEYCHAIN_ACCOUNT_OAUTH,
-        update: true
-      })
-    );
-    expect(calls[1].args).toContain("-U");
-    expect(calls[1].stdin).toBe(secret);
-    expect(calls[0].args.join(" ")).not.toContain(secret);
-    expect(calls[1].args.join(" ")).not.toContain(secret);
+    expect(calls[0].args).toEqual(["-i"]);
+    expect(calls[1].args).toEqual(["-i"]);
+    expect(calls[0].stdin).not.toContain(" -U ");
+    expect(calls[1].stdin).toContain(" -U ");
+    expect(calls[1].stdin).toContain(secret);
+    expect(securityArgvUsesLiteralDashPassword(calls[0].args)).toBe(false);
+    expect(securityArgvUsesLiteralDashPassword(calls[1].args)).toBe(false);
   });
 
-  it("KeychainSecretStore.set uses security CLI and does not put the secret on argv", async () => {
-    const secret = ["store", "token", "value"].join("-");
+  it("KeychainSecretStore.set uses security -i and verifies read-back", async () => {
+    const secret = serializeTokenSet({ access_token: ["store", "token"].join("-") });
     const { spawnImpl, calls } = captureSpawn([0]);
-    const store = new KeychainSecretStore(KEYCHAIN_SERVICE, "/usr/bin/security", spawnImpl);
+    const store = new KeychainSecretStore(
+      KEYCHAIN_SERVICE,
+      "/usr/bin/security",
+      spawnImpl,
+      execFileReturning(secret)
+    );
     await store.set(KEYCHAIN_ACCOUNT_OAUTH, secret);
-    expect(calls[0].command).toBe("/usr/bin/security");
+    expect(calls[0].args).toEqual(["-i"]);
     expect(calls[0].args.join(" ")).not.toContain(secret);
-    expect(calls[0].stdin).toBe(secret);
+    expect(calls[0].stdin).toContain(secret);
+    expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toBe(secret);
     expect(store.describe()).toMatch(/macOS Keychain/);
+  });
+
+  it("fails login persist when read-back is the literal dash from -w -", async () => {
+    const secret = serializeTokenSet({ access_token: ["real", "token"].join("-") });
+    const { spawnImpl } = captureSpawn([0]);
+    await expect(
+      writeKeychainPassword({
+        service: KEYCHAIN_SERVICE,
+        account: KEYCHAIN_ACCOUNT_OAUTH,
+        value: secret,
+        spawnImpl,
+        readBack: async () => "-"
+      })
+    ).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(SecretStoreWriteError);
+      expect((err as Error).message).toMatch(/Keychain write failed/);
+      expect((err as Error).message).toContain(KEYCHAIN_READBACK_FAILED_MESSAGE.slice(0, 40));
+      expect((err as Error).message).toMatch(/literal '-'/);
+      expect((err as Error).message).not.toMatch(/Token exchange failed/i);
+      expect((err as Error).message).not.toContain(secret);
+      return true;
+    });
+  });
+
+  it("fails when read-back is empty", async () => {
+    const secret = serializeTokenSet({ access_token: ["empty", "check"].join("-") });
+    const { spawnImpl } = captureSpawn([0]);
+    await expect(
+      writeKeychainPassword({
+        service: KEYCHAIN_SERVICE,
+        account: KEYCHAIN_ACCOUNT_OAUTH,
+        value: secret,
+        spawnImpl,
+        readBack: async () => null
+      })
+    ).rejects.toBeInstanceOf(SecretStoreWriteError);
+  });
+
+  it("KeychainSecretStore.set fails when find-generic-password returns dash", async () => {
+    const secret = serializeTokenSet({ access_token: ["dash", "store"].join("-") });
+    const { spawnImpl } = captureSpawn([0]);
+    const store = new KeychainSecretStore(
+      KEYCHAIN_SERVICE,
+      "/usr/bin/security",
+      spawnImpl,
+      execFileReturning("-")
+    );
+    await expect(store.set(KEYCHAIN_ACCOUNT_OAUTH, secret)).rejects.toBeInstanceOf(SecretStoreWriteError);
   });
 
   it("does not crash with uncaught EPIPE if security exits before stdin drain", async () => {
@@ -117,8 +212,11 @@ describe("Keychain secret write", () => {
       writeKeychainPassword({
         service: KEYCHAIN_SERVICE,
         account: KEYCHAIN_ACCOUNT_OAUTH,
-        value: ["pipe", "token"].join("-"),
-        spawnImpl
+        value: serializeTokenSet({ access_token: ["pipe", "token"].join("-") }),
+        spawnImpl,
+        readBack: async () => {
+          throw new Error("read-back should not run after write failure");
+        }
       })
     ).rejects.toSatisfy((err: unknown) => {
       expect(err).toBeInstanceOf(SecretStoreWriteError);
@@ -128,17 +226,27 @@ describe("Keychain secret write", () => {
     });
   });
 
-  it("throws SecretStoreWriteError (not a generic token-exchange error) when both add and update fail", async () => {
+  it("throws SecretStoreWriteError when both add and update fail", async () => {
     const { spawnImpl, calls } = captureSpawn([2, 3]);
     await expect(
       writeKeychainPassword({
         service: KEYCHAIN_SERVICE,
         account: KEYCHAIN_ACCOUNT_OAUTH,
-        value: ["fail", "token"].join("-"),
-        spawnImpl
+        value: serializeTokenSet({ access_token: ["fail", "token"].join("-") }),
+        spawnImpl,
+        readBack: async () => "-"
       })
     ).rejects.toBeInstanceOf(SecretStoreWriteError);
     expect(calls).toHaveLength(2);
+  });
+
+  it("keychainReadBackMatches rejects dash and empty", () => {
+    const token = serializeTokenSet({ access_token: "abc" });
+    expect(keychainReadBackMatches(token, token)).toBe(true);
+    expect(keychainReadBackMatches(token, "-")).toBe(false);
+    expect(keychainReadBackMatches(token, "")).toBe(false);
+    expect(keychainReadBackMatches(token, null)).toBe(false);
+    expect(keychainReadBackMatches(token, "other")).toBe(false);
   });
 });
 

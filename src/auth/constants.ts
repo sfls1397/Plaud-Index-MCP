@@ -50,6 +50,10 @@ export const KEYCHAIN_WRITE_FAILED_PAGE =
 export const SECRET_STORE_WRITE_FAILED_MESSAGE =
   "Token store write failed. Authorization succeeded, but tokens could not be saved. Re-run `plaud-index-mcp login`.";
 
+/** Persist looked like it succeeded but Keychain did not hold the token JSON. */
+export const KEYCHAIN_READBACK_FAILED_MESSAGE =
+  "Keychain write failed: read-back did not match the saved token (empty, '-', or a different payload). Re-run `plaud-index-mcp login` from a logged-in GUI/Terminal session.";
+
 /**
  * Always-on host login notes. Shown in `login --help` and during login.
  */

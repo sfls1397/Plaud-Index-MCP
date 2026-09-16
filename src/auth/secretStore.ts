@@ -3,8 +3,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
-import { KEYCHAIN_ACCOUNT_OAUTH, KEYCHAIN_SERVICE, KEYCHAIN_WRITE_FAILED_MESSAGE } from "./constants.js";
-import { SecretStoreWriteError } from "./errors.js";
+import { KEYCHAIN_ACCOUNT_OAUTH, KEYCHAIN_READBACK_FAILED_MESSAGE, KEYCHAIN_SERVICE, KEYCHAIN_WRITE_FAILED_MESSAGE } from "./constants.js";
+import { SecretStoreWriteError, isSecretStoreWriteError } from "./errors.js";
 import { redactSecrets } from "../sanitize.js";
 import { getPlaudIndexDir } from "../paths.js";
 import type { SecretStore } from "./types.js";
@@ -85,23 +85,71 @@ export type SpawnImpl = (
   options: { stdio: ["pipe", "pipe", "pipe"] }
 ) => ChildProcess;
 
+export type ExecFileAsync = (
+  file: string,
+  args: readonly string[]
+) => Promise<{ stdout: string; stderr: string }>;
+
+/** True when argv would store the character `-` as the password (Apple does not treat `-w -` as stdin). */
+export function securityArgvUsesLiteralDashPassword(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === "-w" && args[i + 1] === "-") {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
- * `security add-generic-password` argv. Secret is never on argv — caller writes it
- * to stdin because `-w -` means "read password from stdin".
- *
- * Mini: JXA/`osascript` `SecItemAdd` returns -50; this CLI path is what works.
+ * Quote one `security -i` word. JSON tokens use double quotes, so single quotes
+ * keep the secret off process argv and intact on the interactive command line.
  */
-export function keychainSecurityWriteArgs(options: {
+export function quoteSecurityCliWord(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** argv for interactive mode: secret must never appear here. */
+export function keychainSecurityInteractiveArgs(): string[] {
+  return ["-i"];
+}
+
+/**
+ * Command fed to `security -i` on stdin. `-w` is last so a password that starts
+ * with `-` is not parsed as a flag. Never uses `-w -` as a stdin-password idiom.
+ */
+export function keychainSecurityStdinCommand(options: {
   service: string;
   account: string;
+  value: string;
   update?: boolean;
-}): string[] {
-  const args = ["add-generic-password", "-s", options.service, "-a", options.account];
-  if (options.update) {
-    args.push("-U");
+}): string {
+  const update = options.update ? " -U" : "";
+  return (
+    `add-generic-password${update}` +
+    ` -s ${quoteSecurityCliWord(options.service)}` +
+    ` -a ${quoteSecurityCliWord(options.account)}` +
+    ` -w ${quoteSecurityCliWord(options.value)}\n`
+  );
+}
+
+export function keychainReadBackMatches(expected: string, actual: string | null): boolean {
+  if (actual == null || actual === "") {
+    return false;
   }
-  args.push("-w", "-");
-  return args;
+  if (actual === "-") {
+    return false;
+  }
+  return actual === expected;
+}
+
+function describeReadBack(actual: string | null): string {
+  if (actual == null || actual === "") {
+    return "empty";
+  }
+  if (actual === "-") {
+    return "literal '-' (security -w - stores a dash; it is not stdin)";
+  }
+  return "a different payload";
 }
 
 function keychainWriteFailure(detail?: string): SecretStoreWriteError {
@@ -110,14 +158,15 @@ function keychainWriteFailure(detail?: string): SecretStoreWriteError {
   return new SecretStoreWriteError(`${KEYCHAIN_WRITE_FAILED_MESSAGE}${extra}`);
 }
 
-function runSecurityStdinWrite(options: {
+function runSecurityInteractive(options: {
   bin: string;
-  args: readonly string[];
-  value: string;
+  stdinCommand: string;
   spawnImpl: SpawnImpl;
 }): Promise<{ code: number | null; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = options.spawnImpl(options.bin, options.args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = options.spawnImpl(options.bin, keychainSecurityInteractiveArgs(), {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
     let stderr = "";
     let settled = false;
     const settle = (result: { code: number | null; stderr: string }) => {
@@ -145,21 +194,42 @@ function runSecurityStdinWrite(options: {
       settle({ code: 1, stderr: stderr || "security stdin unavailable" });
       return;
     }
-    // security may exit before stdin drains; write then emits EPIPE. Handle
-    // it before write so a closed pipe cannot crash the process.
     child.stdin.on("error", () => {
       /* EPIPE / closed pipe: child close/error settles the promise. */
     });
-    child.stdin.write(options.value);
+    child.stdin.write(options.stdinCommand);
     child.stdin.end();
   });
 }
 
+async function defaultKeychainReadBack(options: {
+  bin: string;
+  service: string;
+  account: string;
+  execFileImpl: ExecFileAsync;
+}): Promise<string | null> {
+  try {
+    const { stdout } = await options.execFileImpl(options.bin, [
+      "find-generic-password",
+      "-s",
+      options.service,
+      "-a",
+      options.account,
+      "-w"
+    ]);
+    const value = stdout.replace(/\n$/, "");
+    return value ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Persist a generic password via `/usr/bin/security` with the secret on stdin
- * (`-w -`). Tries add, then update (`-U`) if the item already exists.
+ * Persist a generic password via `/usr/bin/security -i`.
+ * Stdin is `add-generic-password … -w '<secret>'` so the secret is not process argv.
+ * Apple’s `-w -` is a literal password and must not be used.
  *
- * Does not use osascript JXA `SecItemAdd` (that returns -50 on Mini).
+ * After a 0 exit, reads the item back and fails if it is empty, `-`, or not the token.
  */
 export async function writeKeychainPassword(options: {
   service: string;
@@ -167,52 +237,75 @@ export async function writeKeychainPassword(options: {
   value: string;
   spawnImpl?: SpawnImpl;
   securityBin?: string;
+  readBack?: () => Promise<string | null>;
+  execFileImpl?: ExecFileAsync;
 }): Promise<void> {
   const spawnImpl = options.spawnImpl || spawn;
   const securityBin = options.securityBin || "/usr/bin/security";
-  const addArgs = keychainSecurityWriteArgs({
-    service: options.service,
-    account: options.account
-  });
-  const updateArgs = keychainSecurityWriteArgs({
+  const execFileImpl = options.execFileImpl || execFileAsync;
+  const readBack =
+    options.readBack ||
+    (() =>
+      defaultKeychainReadBack({
+        bin: securityBin,
+        service: options.service,
+        account: options.account,
+        execFileImpl
+      }));
+
+  const addCmd = keychainSecurityStdinCommand({
     service: options.service,
     account: options.account,
+    value: options.value
+  });
+  const updateCmd = keychainSecurityStdinCommand({
+    service: options.service,
+    account: options.account,
+    value: options.value,
     update: true
   });
 
   let lastDetail = "";
   try {
-    const added = await runSecurityStdinWrite({
+    const added = await runSecurityInteractive({
       bin: securityBin,
-      args: addArgs,
-      value: options.value,
+      stdinCommand: addCmd,
       spawnImpl
     });
-    if (added.code === 0) {
-      return;
+    if (added.code !== 0) {
+      lastDetail = `security -i add-generic-password exited ${added.code}${added.stderr ? `: ${added.stderr}` : ""}`;
+      const updated = await runSecurityInteractive({
+        bin: securityBin,
+        stdinCommand: updateCmd,
+        spawnImpl
+      });
+      if (updated.code !== 0) {
+        lastDetail = `security -i add-generic-password -U exited ${updated.code}${updated.stderr ? `: ${updated.stderr}` : ""}`;
+        throw keychainWriteFailure(lastDetail);
+      }
     }
-    lastDetail = `security add-generic-password exited ${added.code}${added.stderr ? `: ${added.stderr}` : ""}`;
-    const updated = await runSecurityStdinWrite({
-      bin: securityBin,
-      args: updateArgs,
-      value: options.value,
-      spawnImpl
-    });
-    if (updated.code === 0) {
-      return;
-    }
-    lastDetail = `security add-generic-password -U exited ${updated.code}${updated.stderr ? `: ${updated.stderr}` : ""}`;
   } catch (err) {
+    if (isSecretStoreWriteError(err)) {
+      throw err;
+    }
     lastDetail = err instanceof Error ? err.message : String(err);
+    throw keychainWriteFailure(lastDetail);
   }
-  throw keychainWriteFailure(lastDetail);
+
+  const stored = await readBack();
+  if (!keychainReadBackMatches(options.value, stored)) {
+    throw new SecretStoreWriteError(
+      `${KEYCHAIN_READBACK_FAILED_MESSAGE} Details: ${describeReadBack(stored)}.`
+    );
+  }
 }
 
 export class KeychainSecretStore implements SecretStore {
   constructor(
     private readonly service: string = KEYCHAIN_SERVICE,
     private readonly securityBin: string = "/usr/bin/security",
-    private readonly spawnImpl: SpawnImpl = spawn
+    private readonly spawnImpl: SpawnImpl = spawn,
+    private readonly execFileImpl: ExecFileAsync = execFileAsync
   ) {}
 
   describe(): string {
@@ -220,20 +313,12 @@ export class KeychainSecretStore implements SecretStore {
   }
 
   async get(account: string): Promise<string | null> {
-    try {
-      const { stdout } = await execFileAsync(this.securityBin, [
-        "find-generic-password",
-        "-s",
-        this.service,
-        "-a",
-        account,
-        "-w"
-      ]);
-      const value = stdout.replace(/\n$/, "");
-      return value ? value : null;
-    } catch {
-      return null;
-    }
+    return defaultKeychainReadBack({
+      bin: this.securityBin,
+      service: this.service,
+      account,
+      execFileImpl: this.execFileImpl
+    });
   }
 
   async set(account: string, value: string): Promise<void> {
@@ -242,13 +327,15 @@ export class KeychainSecretStore implements SecretStore {
       account,
       value,
       spawnImpl: this.spawnImpl,
-      securityBin: this.securityBin
+      securityBin: this.securityBin,
+      execFileImpl: this.execFileImpl,
+      readBack: () => this.get(account)
     });
   }
 
   async delete(account: string): Promise<void> {
     try {
-      await execFileAsync(this.securityBin, [
+      await this.execFileImpl(this.securityBin, [
         "delete-generic-password",
         "-s",
         this.service,
