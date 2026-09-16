@@ -1,0 +1,14 @@
+# Example MCP client config (stdio)
+
+Any stdio MCP client can use this. Grok Bot, Claude Desktop, and Cursor are examples — not a single-client product.
+
+```json
+{
+  "mcpServers": {
+    "plaud-index": {
+      "command": "npx",
+      "args": ["-y", "plaud-index-mcp"]
+    }
+  }
+}
+```
