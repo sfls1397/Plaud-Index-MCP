@@ -1,8 +1,20 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { OAUTH_CALLBACK_PATH, OAUTH_CALLBACK_PORT } from "./constants.js";
+import {
+  KEYCHAIN_WRITE_FAILED_PAGE,
+  OAUTH_CALLBACK_PATH,
+  OAUTH_CALLBACK_PORT,
+  SECRET_STORE_WRITE_FAILED_MESSAGE
+} from "./constants.js";
+import { isSecretStoreWriteError } from "./errors.js";
 import { redactSecrets } from "../sanitize.js";
 
-export type OAuthCallbackStatus = "success" | "timeout" | "denied" | "exchange-failed" | "listen-failed";
+export type OAuthCallbackStatus =
+  | "success"
+  | "timeout"
+  | "denied"
+  | "exchange-failed"
+  | "persist-failed"
+  | "listen-failed";
 
 export interface OAuthCallbackResult {
   status: OAuthCallbackStatus;
@@ -150,6 +162,14 @@ export function runOAuthCallback(options: RunOAuthCallbackOptions): Promise<OAut
         (err) => {
           const e = err instanceof Error ? err : new Error(String(err));
           res.writeHead(500, { "Content-Type": "text/html" });
+          if (isSecretStoreWriteError(e)) {
+            const page = /keychain write failed/i.test(e.message)
+              ? KEYCHAIN_WRITE_FAILED_PAGE
+              : SECRET_STORE_WRITE_FAILED_MESSAGE;
+            res.end(errorHtml(page));
+            finalize({ status: "persist-failed", error: e });
+            return;
+          }
           res.end(errorHtml("Token exchange failed."));
           finalize({ status: "exchange-failed", error: e });
         }

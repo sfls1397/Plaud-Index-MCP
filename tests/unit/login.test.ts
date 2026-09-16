@@ -4,7 +4,7 @@ import { createSecretStore, MemorySecretStore } from "../../src/auth/secretStore
 import { AUTH_TRANSIENT_MESSAGE, KEYCHAIN_ACCOUNT_OAUTH, RELLOGIN_MESSAGE } from "../../src/auth/constants.js";
 import { serializeTokenSet } from "../../src/auth/oauth.js";
 import { runOAuthCallback } from "../../src/auth/callback.js";
-import { AuthExpiredError, AuthTransportError } from "../../src/auth/errors.js";
+import { AuthExpiredError, AuthTransportError, SecretStoreWriteError } from "../../src/auth/errors.js";
 import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -65,10 +65,11 @@ describe("plaud-index-mcp login / logout", () => {
     expect(joined).toMatch(/Signed in/);
     expect(joined).toMatch(/in-memory store/);
     expect(joined).toMatch(/plaud-mcp/);
-    expect(joined).not.toMatch(/Keychain/);
+    expect(joined).toMatch(/logged-in GUI\/Terminal/);
+    expect(joined).toMatch(/8199/);
+    expect(joined).not.toMatch(/stored in macOS Keychain/);
     expect(joined).not.toContain("login-access");
     expect(joined).not.toContain("login-refresh");
-    expect(joined).toMatch(/8199/);
   });
 
   it("skips browser login when already signed in", async () => {
@@ -163,7 +164,8 @@ describe("plaud-index-mcp login / logout", () => {
     expect(code).toBe(0);
     expect(logs.join("\n")).toMatch(/file store/);
     expect(logs.join("\n")).toContain(home);
-    expect(logs.join("\n")).not.toMatch(/Keychain/);
+    expect(logs.join("\n")).toMatch(/logged-in GUI\/Terminal/);
+    expect(logs.join("\n")).not.toMatch(/stored in macOS Keychain/);
   });
 
   it("maps transport failures away from the auth-expired copy", () => {
@@ -174,6 +176,75 @@ describe("plaud-index-mcp login / logout", () => {
     expect(describeAuthFailure(new AuthTransportError("Plaud token refresh failed (503)."))).not.toMatch(
       /auth expired/i
     );
+    expect(describeAuthFailure(new SecretStoreWriteError())).toMatch(/Keychain write failed/);
+    expect(describeAuthFailure(new SecretStoreWriteError())).not.toMatch(/Token exchange failed/i);
+  });
+
+  it("prints Mini host notes on login --help", async () => {
+    const logs: string[] = [];
+    const code = await runLoginCommand({
+      argv: ["node", "cli.js", "login", "--help"],
+      log: (m) => logs.push(m),
+      runCallback: async () => {
+        throw new Error("should not start OAuth for --help");
+      }
+    });
+    expect(code).toBe(0);
+    const joined = logs.join("\n");
+    expect(joined).toMatch(/Plaud Index MCP login \(v1\.1\.0\)/);
+    expect(joined).toMatch(/signed into Plaud before Allow/);
+    expect(joined).toMatch(/2 minutes/);
+    expect(joined).toMatch(/8199/);
+    expect(joined).toMatch(/logged-in GUI\/Terminal/);
+    expect(joined).toMatch(/not via LaunchAgent/);
+  });
+
+  it("reports Keychain write failure after a successful token exchange", async () => {
+    const store = new MemorySecretStore();
+    store.set = async () => {
+      throw new SecretStoreWriteError();
+    };
+    const logs: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/access-token") && !url.includes("refresh")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "persist-access",
+            refresh_token: "persist-refresh",
+            token_type: "Bearer",
+            expires_in: 3600
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("nope", { status: 404 });
+    };
+    const code = await runLoginCommand({
+      argv: ["node", "cli.js", "login", "--no-browser"],
+      store,
+      fetchImpl,
+      openBrowser: () => {},
+      runCallback: async (opts) => {
+        try {
+          await opts.exchangeCode("auth-code");
+          return { status: "success" };
+        } catch (err) {
+          return {
+            status: "persist-failed",
+            error: err instanceof Error ? err : new Error(String(err))
+          };
+        }
+      },
+      log: (m) => logs.push(m)
+    });
+    expect(code).toBe(1);
+    const joined = logs.join("\n");
+    expect(joined).toMatch(/Keychain write failed/);
+    expect(joined).toMatch(/connection refused/);
+    expect(joined).not.toMatch(/Token exchange failed/i);
+    expect(joined).not.toContain("persist-access");
+    expect(joined).not.toContain("persist-refresh");
   });
 });
 
@@ -218,5 +289,73 @@ describe("OAuth callback server", () => {
     const result = await pending;
     expect(result.status).toBe("success");
     expect(exchanged).toBe("good-code");
+  });
+
+  it("shows Keychain write failed on the callback page when persist fails after exchange", async () => {
+    const port = 18000 + Math.floor(Math.random() * 2000);
+    let listening!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      listening = resolve;
+    });
+    const pending = runOAuthCallback({
+      port,
+      expectedState: "persist-state",
+      timeoutMs: 5000,
+      postSuccessDelayMs: 10,
+      onListening: () => listening(),
+      exchangeCode: async () => {
+        throw new SecretStoreWriteError();
+      }
+    });
+    await Promise.race([
+      ready,
+      pending.then((r) => {
+        throw new Error(`callback ended before listen: ${r.status} ${r.error?.message ?? ""}`);
+      })
+    ]);
+
+    const res = await fetch(`http://127.0.0.1:${port}/auth/callback?code=good-code&state=persist-state`);
+    expect(res.status).toBe(500);
+    const html = await res.text();
+    expect(html).toMatch(/Keychain write failed/);
+    expect(html).not.toMatch(/Token exchange failed/);
+    expect(html).not.toContain("good-code");
+
+    const result = await pending;
+    expect(result.status).toBe("persist-failed");
+    expect(result.error).toBeInstanceOf(SecretStoreWriteError);
+  });
+
+  it("keeps Token exchange failed for OAuth HTTP failures", async () => {
+    const port = 18000 + Math.floor(Math.random() * 2000);
+    let listening!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      listening = resolve;
+    });
+    const pending = runOAuthCallback({
+      port,
+      expectedState: "exchange-state",
+      timeoutMs: 5000,
+      postSuccessDelayMs: 10,
+      onListening: () => listening(),
+      exchangeCode: async () => {
+        throw new Error("token endpoint 400 invalid_grant");
+      }
+    });
+    await Promise.race([
+      ready,
+      pending.then((r) => {
+        throw new Error(`callback ended before listen: ${r.status} ${r.error?.message ?? ""}`);
+      })
+    ]);
+
+    const res = await fetch(`http://127.0.0.1:${port}/auth/callback?code=bad-code&state=exchange-state`);
+    expect(res.status).toBe(500);
+    const html = await res.text();
+    expect(html).toMatch(/Token exchange failed/);
+    expect(html).not.toMatch(/Keychain write failed/);
+
+    const result = await pending;
+    expect(result.status).toBe("exchange-failed");
   });
 });

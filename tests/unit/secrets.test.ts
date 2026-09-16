@@ -61,6 +61,12 @@ describe("no secrets in source, tests, or examples", () => {
     expect(readme).toMatch(/8199/);
     expect(readme).toMatch(/plaud-index-mcp` `1\.1\.0/);
     expect(readme).toMatch(/plaud-index-mcp@1\.1\.0/);
+    expect(readme).toMatch(/signed into Plaud before Allow/);
+    expect(readme).toMatch(/2 minutes/);
+    expect(readme).toMatch(/logged-in GUI\/Terminal/);
+    expect(readme).toMatch(/not via LaunchAgent/);
+    expect(readme).toMatch(/Keychain write failed/);
+    expect(readme).not.toMatch(/MacBook Development clone is required/i);
   });
 
   it("does not commit OAuth client secrets", () => {

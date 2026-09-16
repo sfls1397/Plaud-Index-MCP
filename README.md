@@ -66,7 +66,7 @@ Requires Node.js 18+.
 
 ### Sign in (shareable path)
 
-On the **always-on host** (not a MacBook clone; not Grok Bot’s `user-Plaud` session):
+On the **always-on host** (Peter’s deploy host today: Mac Mini — not Grok Bot’s `user-Plaud` session):
 
 ```bash
 plaud-index-mcp login
@@ -74,16 +74,27 @@ plaud-index-mcp login
 
 This is Plaud **consumer MCP** browser OAuth (same public-client PKCE flow `@plaud-ai/mcp` uses — not Partner developer API tokens, not DevTools / `localStorage`).
 
+`plaud-index-mcp login --help` prints the same host notes.
+
+**Host notes (Mini-side login):**
+
+- Host browser must already be signed into Plaud before Allow (otherwise login/workspace walls; localhost callback never completes).
+- Login waits about **2 minutes**; if the URL expires, re-run `plaud-index-mcp login` for a fresh URL.
+- Allow/callback must reach the **same machine** as the `:8199` listener (or `ssh -L 8199:localhost:8199` when authorizing remotely).
+- `plaud-index-mcp login` must run in a **logged-in GUI/Terminal session** — not via LaunchAgent (OAuth can complete then Keychain write fails).
+
 1. The CLI prints an authorize URL and tries to open a browser.
-2. Click **Authorize** on Plaud’s page.
+2. Click **Allow** on Plaud’s page.
 3. Success message: tokens are in **Keychain** `plaud-index-mcp` / `plaud-mcp`.
 4. Reload the indexer LaunchAgent. It pulls notes/transcripts from the same MCP data plane (`list_files` / `get_file` / `get_note` / `get_transcript`) and refreshes the access token headlessly until Plaud rejects the refresh.
 
-If you SSH to the host and the browser is on your laptop, forward the OAuth callback port **before** login:
+If authorization succeeds but Keychain cannot save the tokens, the CLI and the localhost callback page say **Keychain write failed** (not only “Token exchange failed”). Re-run login from a logged-in Terminal session; clicking Allow again will get connection refused because the callback listener has exited.
+
+If you SSH to the host and the browser is on another machine, forward the OAuth callback port **before** login:
 
 ```bash
 ssh -L 8199:localhost:8199 USER@HOST
-plaud-index-mcp login --no-browser   # then open the printed URL locally
+plaud-index-mcp login --no-browser   # then open the printed URL on the machine that can hit localhost:8199
 ```
 
 Logout:

@@ -1,6 +1,6 @@
-import { AUTH_TRANSIENT_MESSAGE, LOGIN_TIMEOUT_MS, OAUTH_CALLBACK_PORT, RELLOGIN_MESSAGE } from "./constants.js";
+import { AUTH_TRANSIENT_MESSAGE, LOGIN_HOST_NOTES, LOGIN_TIMEOUT_MS, OAUTH_CALLBACK_PORT, RELLOGIN_MESSAGE } from "./constants.js";
 import { runOAuthCallback } from "./callback.js";
-import { AuthExpiredError, isAuthExpiredError, isTransportError } from "./errors.js";
+import { AuthExpiredError, isAuthExpiredError, isSecretStoreWriteError, isTransportError } from "./errors.js";
 import {
   createAuthorizationRequest,
   exchangeAuthorizationCode,
@@ -43,6 +43,16 @@ export async function probeCurrentUser(options: {
   }
 }
 
+export function loginHelpText(): string {
+  return [
+    "Usage: plaud-index-mcp login [--no-browser|--print-url]",
+    "",
+    "Sign in on the always-on host with Plaud consumer MCP OAuth. Tokens go to Keychain (macOS) or the file store (Linux / PLAUD_INDEX_HOME).",
+    "",
+    LOGIN_HOST_NOTES
+  ].join("\n");
+}
+
 export async function runLoginCommand(options: {
   env?: NodeJS.ProcessEnv;
   argv?: string[];
@@ -57,6 +67,10 @@ export async function runLoginCommand(options: {
   const argv = options.argv || process.argv;
   const log = options.log || ((msg) => console.error(msg));
   log(`Plaud Index MCP login (v${packageVersion()})`);
+  if (argvHasFlag(argv, "--help") || argvHasFlag(argv, "-h")) {
+    log(loginHelpText());
+    return 0;
+  }
   const noBrowser = argvHasFlag(argv, "--no-browser") || argvHasFlag(argv, "--print-url");
   const store = options.store || createSecretStore({ env });
   const endpoints = resolveOAuthEndpoints(env);
@@ -88,6 +102,7 @@ export async function runLoginCommand(options: {
 
   const request = createAuthorizationRequest(endpoints);
   log("Plaud consumer MCP OAuth (public client / PKCE).");
+  log(LOGIN_HOST_NOTES);
   log(`Open this URL to authorize (same machine as the callback, or SSH-forward port ${OAUTH_CALLBACK_PORT}):`);
   log(request.url);
   log("");
@@ -142,15 +157,26 @@ export async function runLoginCommand(options: {
       return 0;
     }
     case "timeout":
-      log(`Authentication timed out after 2 minutes. If no browser opened, open the printed URL.`);
+      log(`Authentication timed out after 2 minutes. Re-run login for a fresh URL.`);
       log(`Remote hosts: ssh -L ${OAUTH_CALLBACK_PORT}:localhost:${OAUTH_CALLBACK_PORT} USER@HOST`);
       return 1;
     case "denied":
       log("Authorization denied.");
       return 1;
-    case "exchange-failed":
-      log(redactSecrets(`Authentication failed: ${result.error?.message ?? "token exchange failed"}`));
+    case "persist-failed":
+      log(redactSecrets(result.error?.message ?? "Keychain write failed."));
+      log("Clicking Allow again will fail (connection refused) because this login process has exited. Re-run `plaud-index-mcp login`.");
       return 1;
+    case "exchange-failed": {
+      const persistErr = result.error;
+      if (isSecretStoreWriteError(persistErr)) {
+        log(redactSecrets(persistErr.message));
+        log("Clicking Allow again will fail (connection refused) because this login process has exited. Re-run `plaud-index-mcp login`.");
+        return 1;
+      }
+      log(redactSecrets(`Authentication failed: ${persistErr?.message ?? "token exchange failed"}`));
+      return 1;
+    }
     case "listen-failed":
       log(result.error?.message ?? "Failed to start OAuth callback server.");
       return 1;
@@ -201,6 +227,9 @@ export async function runLogoutCommand(options: {
 export function describeAuthFailure(err: unknown): string {
   if (isAuthExpiredError(err) || err instanceof AuthExpiredError) {
     return RELLOGIN_MESSAGE;
+  }
+  if (isSecretStoreWriteError(err)) {
+    return redactSecrets(err instanceof Error ? err.message : "Keychain write failed.");
   }
   if (isTransportError(err)) {
     return AUTH_TRANSIENT_MESSAGE;

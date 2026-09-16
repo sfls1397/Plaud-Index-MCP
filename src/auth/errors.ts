@@ -1,4 +1,4 @@
-import { RELLOGIN_MESSAGE } from "./constants.js";
+import { KEYCHAIN_WRITE_FAILED_MESSAGE, RELLOGIN_MESSAGE } from "./constants.js";
 
 export class AuthExpiredError extends Error {
   readonly code = "AUTH_EXPIRED";
@@ -16,6 +16,21 @@ export class AuthTransportError extends Error {
     super(message);
     this.name = "AuthTransportError";
   }
+}
+
+export class SecretStoreWriteError extends Error {
+  readonly code = "SECRET_STORE_WRITE";
+
+  constructor(message: string = KEYCHAIN_WRITE_FAILED_MESSAGE) {
+    super(message);
+    this.name = "SecretStoreWriteError";
+  }
+}
+
+export function isSecretStoreWriteError(err: unknown): err is SecretStoreWriteError {
+  return (
+    err instanceof SecretStoreWriteError || (err instanceof Error && err.name === "SecretStoreWriteError")
+  );
 }
 
 export function isAuthExpiredError(err: unknown): boolean {
