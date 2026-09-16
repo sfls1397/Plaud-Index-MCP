@@ -2,7 +2,7 @@
 
 Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings.
 
-- **npm package:** `plaud-index-mcp` `0.1.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
+- **npm package:** `plaud-index-mcp` `1.0.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
 - **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
 
 Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, on-demand search MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
@@ -220,9 +220,9 @@ Runs only while a client is connected (exits on stdin close). The always-on inde
 
 npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`).
 
-1. Create GitHub Release **`v0.1.0`** (tag `v0.1.0`; package version is already `0.1.0`).
+1. Create GitHub Release **`v1.0.0`** (tag `v1.0.0`; package version is `1.0.0`).
 2. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
-3. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@0.1.0`, reload the indexer LaunchAgent, then **live search while the lock is held**.
+3. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.0.0`, reload the indexer LaunchAgent, then **live search while the lock is held**.
 
 Later version bumps are locked by Peter. This repo does not invent them.
 
