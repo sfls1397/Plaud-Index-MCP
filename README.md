@@ -56,13 +56,11 @@ Test/dev only: `PLAUD_INDEX_HOME` relocates that directory.
 
 ## Install
 
-**Always-on indexer host (Peter’s Mac Mini): global npm only — no git clone.**
+**Always-on indexer host (Peter’s deploy host today: Mac Mini): global npm only — no git clone.** This product has no MacBook Development clone.
 
 ```bash
 npm install -g plaud-index-mcp
 ```
-
-**MacBook / development:** clone this repo, `npm install`, point MCP at `node /absolute/path/to/plaud-index-mcp/dist/cli.js`.
 
 Requires Node.js 18+.
 
@@ -182,10 +180,10 @@ Example indexer config (`~/.plaud-index-mcp/config.json`):
 ## Indexer entrypoint
 
 ```bash
-node dist/cli.js --mode=indexer
-# global:
+# global (always-on host):
 plaud-index-indexer
-# clone:
+# from a source checkout:
+node dist/cli.js --mode=indexer
 npm run indexer
 ```
 
@@ -218,14 +216,13 @@ Example client config:
 
 Runs only while a client is connected (exits on stdin close). The always-on indexer daemon does **not** (LaunchAgent often attaches stdin to `/dev/null`).
 
-## Dual-host deploy
+## Deploy / verify (always-on host only)
 
-**After npm publish (when Peter asks):**
+This product has **no MacBook Development clone**. After npm publish (when Peter asks), required verify is the **always-on host only** (Peter’s deploy host today: Mac Mini):
 
-1. **MacBook (Development clone):** `git pull` + smoke the version string (`plaud-index-mcp` / `0.x.y` once published).
-2. **Mac Mini:** `npm install -g plaud-index-mcp@<version>` (no clone), reload indexer LaunchAgent, then a **live query while the indexer holds the lock** (search must succeed against the populated index).
-
-**Merge-only (no npm change):** MacBook pull only. Do not call Mini deploy done.
+1. `npm install -g plaud-index-mcp@<version>` (no clone)
+2. Reload the indexer LaunchAgent
+3. **Live search while the indexer holds the lock** (query tools must succeed against the populated index)
 
 Publish / version bumps beyond `0.1.0` are locked by Peter. This repo does not invent them.
 
