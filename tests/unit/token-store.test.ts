@@ -19,7 +19,7 @@ describe("token store + session", () => {
         access_token: "file-access",
         refresh_token: "file-refresh",
         token_type: "Bearer",
-        expires_at: Date.now() + 60_000
+        expires_at: Date.now() + 3_600_000
       }),
       "utf8"
     );

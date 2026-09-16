@@ -129,7 +129,7 @@ describe("McpPlaudClient", () => {
     const tokenJson = serializeTokenSet({
       access_token: "stale-access",
       refresh_token: "refresh-keep",
-      expires_at: Date.now() + 60_000
+      expires_at: Date.now() + 3_600_000
     });
     await store.set(KEYCHAIN_ACCOUNT_OAUTH, tokenJson);
     const session = await createAuthSession({
@@ -182,7 +182,7 @@ describe("createPlaudClient auth order", () => {
       serializeTokenSet({
         access_token: "mcp-access",
         refresh_token: "mcp-refresh",
-        expires_at: Date.now() + 60_000
+        expires_at: Date.now() + 3_600_000
       })
     );
     const client = await createPlaudClient({

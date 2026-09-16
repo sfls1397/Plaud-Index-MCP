@@ -78,7 +78,7 @@ describe("plaud-index-mcp login / logout", () => {
       serializeTokenSet({
         access_token: "existing-access",
         refresh_token: "existing-refresh",
-        expires_at: Date.now() + 120_000
+        expires_at: Date.now() + 3_600_000
       })
     );
     const logs: string[] = [];
