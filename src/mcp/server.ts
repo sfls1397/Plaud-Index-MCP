@@ -11,7 +11,7 @@ export function packageVersion(): string {
   try {
     return JSON.parse(fs.readFileSync(pkgPath, "utf8")).version as string;
   } catch {
-    return "1.0.0";
+    return "1.1.0";
   }
 }
 

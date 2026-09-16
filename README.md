@@ -2,7 +2,7 @@
 
 Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings.
 
-- **npm package:** `plaud-index-mcp` `1.0.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
+- **npm package:** `plaud-index-mcp` `1.1.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
 - **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
 
 Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, on-demand search MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
@@ -94,7 +94,7 @@ plaud-index-mcp logout
 
 If a refresh/401 fails, the indexer logs `Plaud auth expired. Re-run: plaud-index-mcp login` (no secrets). Official Plaud MCP’s plaintext `~/.plaud/tokens-mcp.json` is **read once and migrated into Keychain** if present; it is not the LaunchAgent store.
 
-**`1.0.0` Keychain-manual / Bearer-only (`security add-generic-password … -a plaud-api` / `PLAUD_API_TOKEN`) is not the shareable path** once this login flow lands. Leave that as a power-user override only.
+**The already-published `1.0.0` Keychain-manual / Bearer-only path (`security add-generic-password … -a plaud-api` / `PLAUD_API_TOKEN`) is not the shareable path.** `1.1.0` replaces it with `plaud-index-mcp login`. Leave Bearer-only as a power-user override.
 
 ## Indexer auth details
 
@@ -256,9 +256,9 @@ Runs only while a client is connected (exits on stdin close). The always-on inde
 npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`). The publish job uses **Node 24** so npm is new enough for trusted publishing.
 
 1. After this workflow is on `main`, bootstrap the package on npmjs if it does not exist yet (trusted publisher config needs the package name). Attach GitHub Actions for `sfls1397/Plaud-Index-MCP` as the trusted publisher.
-2. Create GitHub Release **`v1.0.0`** (tag `v1.0.0`; package version is `1.0.0`).
+2. Create GitHub Release **`v1.1.0`** (tag `v1.1.0`; package version is `1.1.0`).
 3. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
-4. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.0.0`, run `plaud-index-mcp login` once, reload the indexer LaunchAgent, then **live search while the lock is held**.
+4. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.1.0`, run `plaud-index-mcp login` once, reload the indexer LaunchAgent, then **live search while the lock is held**.
 
 Later version bumps are locked by Peter. This repo does not invent them.
 
