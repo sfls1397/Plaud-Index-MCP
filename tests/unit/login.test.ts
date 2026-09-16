@@ -61,7 +61,7 @@ describe("plaud-index-mcp login / logout", () => {
     expect(stored.access_token).toBe("login-access");
     expect(stored.refresh_token).toBe("login-refresh");
     const joined = logs.join("\n");
-    expect(joined).toMatch(/Plaud Index MCP login \(v1\.1\.0\)/);
+    expect(joined).toMatch(/Plaud Index MCP login \(v1\.1\.1\)/);
     expect(joined).toMatch(/Signed in/);
     expect(joined).toMatch(/in-memory store/);
     expect(joined).toMatch(/plaud-mcp/);
@@ -101,7 +101,7 @@ describe("plaud-index-mcp login / logout", () => {
     });
     expect(code).toBe(0);
     expect(exchanged).toBe(false);
-    expect(logs.join("\n")).toMatch(/Plaud Index MCP login \(v1\.1\.0\)/);
+    expect(logs.join("\n")).toMatch(/Plaud Index MCP login \(v1\.1\.1\)/);
     expect(logs.join("\n")).toMatch(/Already signed in/);
     expect(logs.join("\n")).toMatch(/in-memory store/);
     expect(logs.join("\n")).not.toMatch(/Keychain/);
@@ -121,7 +121,7 @@ describe("plaud-index-mcp login / logout", () => {
     });
     expect(code).toBe(0);
     expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toBeNull();
-    expect(logs.join("\n")).toMatch(/Plaud Index MCP logout \(v1\.1\.0\)/);
+    expect(logs.join("\n")).toMatch(/Plaud Index MCP logout \(v1\.1\.1\)/);
     expect(logs.join("\n")).toMatch(/Logged out/);
     expect(logs.join("\n")).toMatch(/in-memory store/);
     expect(logs.join("\n")).not.toMatch(/Keychain/);
@@ -191,7 +191,7 @@ describe("plaud-index-mcp login / logout", () => {
     });
     expect(code).toBe(0);
     const joined = logs.join("\n");
-    expect(joined).toMatch(/Plaud Index MCP login \(v1\.1\.0\)/);
+    expect(joined).toMatch(/Plaud Index MCP login \(v1\.1\.1\)/);
     expect(joined).toMatch(/signed into Plaud before Allow/);
     expect(joined).toMatch(/2 minutes/);
     expect(joined).toMatch(/8199/);

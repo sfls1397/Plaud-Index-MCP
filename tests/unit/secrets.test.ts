@@ -39,7 +39,7 @@ describe("no secrets in source, tests, or examples", () => {
   it("does not depend on Apple Tools MCP", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     expect(pkg.name).toBe("plaud-index-mcp");
-    expect(pkg.version).toBe("1.1.0");
+    expect(pkg.version).toBe("1.1.1");
     expect(pkg.description).toBe(
       "Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings"
     );
@@ -48,7 +48,7 @@ describe("no secrets in source, tests, or examples", () => {
     expect(pkg.repository.url).toBe("git+https://github.com/sfls1397/Plaud-Index-MCP.git");
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
     expect(Object.keys(deps).some((k) => /apple-tools/i.test(k))).toBe(false);
-    expect(packageVersion()).toBe("1.1.0");
+    expect(packageVersion()).toBe("1.1.1");
   });
 
   it("does not wire Grok OAuth as indexer auth", () => {
@@ -59,8 +59,8 @@ describe("no secrets in source, tests, or examples", () => {
     expect(readme).toMatch(/plaud-index-mcp login/);
     expect(readme).toMatch(/not the shareable path/);
     expect(readme).toMatch(/8199/);
-    expect(readme).toMatch(/plaud-index-mcp` `1\.1\.0/);
-    expect(readme).toMatch(/plaud-index-mcp@1\.1\.0/);
+    expect(readme).toMatch(/plaud-index-mcp` `1\.1\.1/);
+    expect(readme).toMatch(/plaud-index-mcp@1\.1\.1/);
     expect(readme).toMatch(/signed into Plaud before Allow/);
     expect(readme).toMatch(/2 minutes/);
     expect(readme).toMatch(/logged-in GUI\/Terminal/);
