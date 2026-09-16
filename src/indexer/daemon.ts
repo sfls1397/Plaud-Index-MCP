@@ -2,8 +2,12 @@ import { loadResolvedIndexInterval, logResolvedInterval } from "../config.js";
 import { createEmbedder } from "../embed.js";
 import { createIndexerLock, DEFAULT_LOCK_HEARTBEAT_MS } from "../lock.js";
 import { getLockFilePath, getVectorIndexDir } from "../paths.js";
-import { createPlaudClient, readPlaudToken } from "../plaud/client.js";
+import { createPlaudClient } from "../plaud/client.js";
 import { refreshIndex } from "../refresh.js";
+import { describeAuthFailure } from "../auth/login.js";
+import { AuthExpiredError, isAuthExpiredError } from "../auth/errors.js";
+import { RELLOGIN_MESSAGE } from "../auth/constants.js";
+import { createAuthNoticeLog, isAuthNotice } from "../auth/logOnce.js";
 import {
   applyIndexerCycleEnd,
   beginIndexCycle,
@@ -33,12 +37,16 @@ export async function runOneRefresh(options: {
   log?: (msg: string) => void;
 }): Promise<void> {
   const env = options.env || process.env;
-  const log = options.log || ((msg) => console.error(msg));
-  const token = readPlaudToken(env);
-  if (!token && env.PLAUD_CLIENT !== "mock" && env.PLAUD_USE_MOCK !== "1") {
-    log(
-      "PLAUD_API_TOKEN is not set. Put the Plaud API token in Keychain or env. Do not use Grok OAuth. Skipping cycle."
-    );
+  const log = createAuthNoticeLog(options.log || ((msg) => console.error(msg)));
+  let client;
+  try {
+    client = await createPlaudClient({ env, log });
+  } catch (err) {
+    if (isAuthExpiredError(err) || err instanceof AuthExpiredError) {
+      log(RELLOGIN_MESSAGE);
+      return;
+    }
+    log(describeAuthFailure(err));
     return;
   }
   const store =
@@ -48,7 +56,6 @@ export async function runOneRefresh(options: {
       env
     }));
   const embedder = await createEmbedder({ env });
-  const client = createPlaudClient({ env });
   const result = await refreshIndex({ client, store, embedder, log });
   log(
     `Index cycle complete: examined=${result.examined} upserted=${result.upserted} skipped=${result.skipped} deleted=${result.deleted} model=${result.modelId}`
@@ -64,6 +71,7 @@ export async function runIndexerDaemon(options: {
 } = {}): Promise<IndexerState> {
   const env = options.env || process.env;
   const indexerMode = options.indexerMode !== false;
+  const log = createAuthNoticeLog((msg) => console.error(msg));
   const resolved = loadResolvedIndexInterval({ env });
   logResolvedInterval(resolved);
 
@@ -143,11 +151,11 @@ export async function runIndexerDaemon(options: {
       state.isFirstEverRun = !(await vectorStore.isReady());
       state.ownsIndexLock = lock.ownsLock;
       syncQuerySession();
-      await runOneRefresh({ env, store: vectorStore });
+      await runOneRefresh({ env, store: vectorStore, log });
       applyEnd(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`Indexing error: ${message}`);
+      const text = describeAuthFailure(err);
+      log(isAuthNotice(text) ? text : `Indexing error: ${text}`);
       applyEnd(false);
     }
   }

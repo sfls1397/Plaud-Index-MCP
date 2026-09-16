@@ -2,16 +2,28 @@
 
 import { createIndexerLock, DEFAULT_LOCK_HEARTBEAT_MS } from "./lock.js";
 import { packageVersion, startQueryMcp } from "./mcp/server.js";
-import { isIndexerMode } from "./processMode.js";
+import { getCliCommand } from "./processMode.js";
 import { getLockFilePath, getVectorIndexDir } from "./paths.js";
 import { runIndexerDaemon } from "./indexer/daemon.js";
 import { bindStdinCloseExit, beginOwnedIndexing, mcpIndexingStartup, shouldConnectMcpStdio } from "./runtime.js";
 import { openVectorStore } from "./store/openStore.js";
+import { runLoginCommand, runLogoutCommand } from "./auth/login.js";
 
-const INDEXER_MODE = isIndexerMode();
+const COMMAND = getCliCommand();
+const INDEXER_MODE = COMMAND === "indexer";
 
 async function main(): Promise<void> {
   const env = process.env;
+
+  if (COMMAND === "login") {
+    const code = await runLoginCommand({ env, argv: process.argv });
+    process.exit(code);
+  }
+
+  if (COMMAND === "logout") {
+    const code = await runLogoutCommand({ env });
+    process.exit(code);
+  }
 
   if (INDEXER_MODE) {
     console.error(`Plaud Index MCP indexer running (v${packageVersion()})`);

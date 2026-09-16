@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { redactSecrets } from "../../src/sanitize.js";
+import { packageVersion } from "../../src/mcp/server.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -37,7 +39,7 @@ describe("no secrets in source, tests, or examples", () => {
   it("does not depend on Apple Tools MCP", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     expect(pkg.name).toBe("plaud-index-mcp");
-    expect(pkg.version).toBe("1.0.0");
+    expect(pkg.version).toBe("1.1.0");
     expect(pkg.description).toBe(
       "Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings"
     );
@@ -46,6 +48,7 @@ describe("no secrets in source, tests, or examples", () => {
     expect(pkg.repository.url).toBe("git+https://github.com/sfls1397/Plaud-Index-MCP.git");
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
     expect(Object.keys(deps).some((k) => /apple-tools/i.test(k))).toBe(false);
+    expect(packageVersion()).toBe("1.1.0");
   });
 
   it("does not wire Grok OAuth as indexer auth", () => {
@@ -53,5 +56,29 @@ describe("no secrets in source, tests, or examples", () => {
     expect(readme).toMatch(/PLAUD_API_TOKEN/);
     expect(readme).toMatch(/Keychain/);
     expect(readme).toMatch(/not Grok/i);
+    expect(readme).toMatch(/plaud-index-mcp login/);
+    expect(readme).toMatch(/not the shareable path/);
+    expect(readme).toMatch(/8199/);
+    expect(readme).toMatch(/plaud-index-mcp` `1\.1\.0/);
+    expect(readme).toMatch(/plaud-index-mcp@1\.1\.0/);
+  });
+
+  it("does not commit OAuth client secrets", () => {
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      expect(text, file).not.toMatch(/clientSecret\s*:\s*["'][^"']+["']/);
+      expect(text, file).not.toMatch(/PLAUD_CLIENT_SECRET\s*=\s*["'][^"']{4,}["']/);
+    }
+  });
+});
+
+describe("redactSecrets", () => {
+  it("redacts access and refresh tokens from log text", () => {
+    const jwtish = ["eyJ", "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", ".aaa.bbb"].join("");
+    const refresh = ["super", "refresh"].join("-");
+    const text = redactSecrets(`access_token=${jwtish} refresh_token=${refresh} Bearer ${jwtish}`);
+    expect(text).toContain("[REDACTED]");
+    expect(text).not.toContain(refresh);
+    expect(text).not.toContain(jwtish);
   });
 });

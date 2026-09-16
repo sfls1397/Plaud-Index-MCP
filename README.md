@@ -2,7 +2,7 @@
 
 Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings.
 
-- **npm package:** `plaud-index-mcp` `1.0.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
+- **npm package:** `plaud-index-mcp` `1.1.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
 - **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
 
 Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, on-demand search MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
@@ -14,7 +14,7 @@ Any MCP client (Grok Bot, Claude Desktop, Cursor, …) can search. This is not a
 | Topic | Default |
 | --- | --- |
 | Package / repo | npm `plaud-index-mcp` / GitHub `sfls1397/Plaud-Index-MCP` |
-| Indexer auth | `PLAUD_API_TOKEN` in **Keychain or env only** — **not** Grok’s OAuth session, **not** `~/.plaud` MCP tokens |
+| Indexer auth | **`plaud-index-mcp login`** (Plaud consumer MCP OAuth / PKCE) → Keychain service `plaud-index-mcp` account `plaud-mcp`. LaunchAgent refreshes headless. Optional `PLAUD_API_TOKEN` is a **non-shareable override only** — not Grok’s OAuth session. |
 | Embed | `@xenova/transformers` + `Xenova/all-MiniLM-L6-v2` (local; not Claude/Grok). Model id stored in index metadata. **Bumping the model = release + full re-index.** |
 | Query tools | `plaud_search` (semantic, returns **Plaud file ids** + title/date/snippet), `plaud_get` (by file id). Optional `date_from` / `date_to`. |
 | Interval | Default **`5m`**. Clamp floor **30s**, ceiling **6h**, warn on clamp. Human forms `30s`, `5m`, `1h`. |
@@ -64,42 +64,77 @@ npm install -g plaud-index-mcp
 
 Requires Node.js 18+.
 
-## Indexer auth (Keychain / env)
+### Sign in (shareable path)
 
-The indexer talks to Plaud with **`PLAUD_API_TOKEN`**. Auth is not Grok OAuth — do not reuse Grok Bot’s OAuth session.
-
-One-time Keychain item:
+On the **always-on host** (not a MacBook clone; not Grok Bot’s `user-Plaud` session):
 
 ```bash
-security add-generic-password -s plaud-index-mcp -a plaud-api -w
+plaud-index-mcp login
 ```
 
-LaunchAgent should load the token at start (see `examples/load-token-from-keychain.sh`). **Never** put the token in the plist, repo, tests, or logs.
+This is Plaud **consumer MCP** browser OAuth (same public-client PKCE flow `@plaud-ai/mcp` uses — not Partner developer API tokens, not DevTools / `localStorage`).
 
-Env (shell smoke):
+1. The CLI prints an authorize URL and tries to open a browser.
+2. Click **Authorize** on Plaud’s page.
+3. Success message: tokens are in **Keychain** `plaud-index-mcp` / `plaud-mcp`.
+4. Reload the indexer LaunchAgent. It pulls notes/transcripts from the same MCP data plane (`list_files` / `get_file` / `get_note` / `get_transcript`) and refreshes the access token headlessly until Plaud rejects the refresh.
+
+If you SSH to the host and the browser is on your laptop, forward the OAuth callback port **before** login:
 
 ```bash
-export PLAUD_API_TOKEN="…"   # from Keychain; do not commit
-export PLAUD_API_BASE="https://api.plaud.ai"   # optional override
+ssh -L 8199:localhost:8199 USER@HOST
+plaud-index-mcp login --no-browser   # then open the printed URL locally
 ```
 
-## Plaud API shape (expected)
+Logout:
 
-Live Plaud HTTP details vary (web API vs platform). This package uses a **pluggable `PlaudClient`**. Tests use `MockPlaudClient`. Expected env + API shape:
+```bash
+plaud-index-mcp logout
+```
 
-| Env | Meaning |
+If a refresh/401 fails, the indexer logs `Plaud auth expired. Re-run: plaud-index-mcp login` (no secrets). Official Plaud MCP’s plaintext `~/.plaud/tokens-mcp.json` is **read once and migrated into Keychain** if present; it is not the LaunchAgent store.
+
+**The already-published `1.0.0` Keychain-manual / Bearer-only path (`security add-generic-password … -a plaud-api` / `PLAUD_API_TOKEN`) is not the shareable path.** `1.1.0` replaces it with `plaud-index-mcp login`. Leave Bearer-only as a power-user override.
+
+## Indexer auth details
+
+LaunchAgent: run `examples/load-token-from-keychain.sh` (user session so Keychain works). The indexer process reads Keychain; **never** put tokens in the plist, repo, tests, or logs.
+
+### Token shape (Keychain account `plaud-mcp`)
+
+Compatible with `@plaud-ai/mcp`’s `~/.plaud/tokens-mcp.json`:
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<opaque>",
+  "token_type": "Bearer",
+  "expires_at": 1710000000000
+}
+```
+
+`expires_at` is epoch milliseconds (from Plaud `expires_in`). Public client: no client secret is stored or committed. Overrides: `PLAUD_MCP_CLIENT_ID`, `PLAUD_AUTH_URL`, `PLAUD_TOKEN_URL`, `PLAUD_REFRESH_URL`, `PLAUD_MCP_API_BASE`.
+
+### MCP data plane (happy path)
+
+Same authenticated API `@plaud-ai/mcp` tools use (`list_files` / `get_file` / `get_note` / `get_transcript`):
+
+| Call | Request |
 | --- | --- |
-| `PLAUD_API_TOKEN` | Bearer token (required for indexer pull) |
-| `PLAUD_API_BASE` | Default `https://api.plaud.ai` |
+| List | `GET /open/third-party/files/?page=&page_size=` |
+| File / notes / transcript | `GET /open/third-party/files/{id}` (note/transcript bodies from `note_list` / `source_list`, including `data_link`) |
+| Default base | `https://platform.plaud.ai/developer/api` (`PLAUD_MCP_API_BASE`) |
 
-HTTP client tries, in order:
+Normalized fields still match Plaud MCP: `id` (**file_id**), `name`, `created_at`, `start_at`, `duration`.
 
-- List: `GET /file/simple/web?page=&page_size=` then `GET /files`
-- File: `GET /file/detail/{id}` then `GET /files/{id}`
-- Transcript: file `source_list` / `content_list`, else `GET /files/{id}/transcript`
-- Notes: file `note_list`, else `GET /files/{id}/note`
+### Optional Bearer override (not shareable)
 
-Normalized fields match Plaud MCP: `id` (**file_id**), `name`, `created_at`, `start_at`, `duration`. Those ids are what you pass to remote Plaud MCP.
+```bash
+export PLAUD_API_TOKEN="…"   # do not commit
+export PLAUD_API_BASE="https://api.plaud.ai"
+```
+
+Or leftover Keychain account `plaud-api`. Used only when env `PLAUD_API_TOKEN` is set, or when there is **no** OAuth session. That HTTP client still tries `/file/simple/web` then `/files`. Auth is not Grok OAuth.
 
 For tests / dry runs: `PLAUD_CLIENT=mock` (no network, no secrets).
 
@@ -187,7 +222,7 @@ node dist/cli.js --mode=indexer
 npm run indexer
 ```
 
-LaunchAgent: `RunAtLoad` + `KeepAlive` on **this** process only. Use absolute paths (`which node`, `npm root -g`). Example: `examples/com.plaud-index-mcp.indexer.plist`.
+LaunchAgent: `RunAtLoad` + `KeepAlive` on **this** process only. Use absolute paths (`which node`, `npm root -g`). Example: `examples/com.plaud-index-mcp.indexer.plist` with `examples/load-token-from-keychain.sh`.
 
 Do **not** wrap the on-demand search MCP in a sleep-pipe KeepAlive.
 
@@ -221,9 +256,9 @@ Runs only while a client is connected (exits on stdin close). The always-on inde
 npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`). The publish job uses **Node 24** so npm is new enough for trusted publishing.
 
 1. After this workflow is on `main`, bootstrap the package on npmjs if it does not exist yet (trusted publisher config needs the package name). Attach GitHub Actions for `sfls1397/Plaud-Index-MCP` as the trusted publisher.
-2. Create GitHub Release **`v1.0.0`** (tag `v1.0.0`; package version is `1.0.0`).
+2. Create GitHub Release **`v1.1.0`** (tag `v1.1.0`; package version is `1.1.0`).
 3. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
-4. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.0.0`, reload the indexer LaunchAgent, then **live search while the lock is held**.
+4. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.1.0`, run `plaud-index-mcp login` once, reload the indexer LaunchAgent, then **live search while the lock is held**.
 
 Later version bumps are locked by Peter. This repo does not invent them.
 
@@ -232,16 +267,18 @@ Later version bumps are locked by Peter. This repo does not invent them.
 This product has **no MacBook Development clone**. After npm publish, required verify is the **always-on host only** (Peter’s deploy host today: Mac Mini):
 
 1. `npm install -g plaud-index-mcp@<version>` (no clone)
-2. Reload the indexer LaunchAgent
-3. **Live search while the indexer holds the lock** (query tools must succeed against the populated index)
+2. `plaud-index-mcp login` on that host (browser OAuth; SSH-forward `8199` if needed)
+3. Reload the indexer LaunchAgent (`examples/load-token-from-keychain.sh`)
+4. **Live search while the indexer holds the lock** (query tools must succeed against the populated index)
 
 ## Security
 
-- No secrets in source, tests, logs, or PRs. Token via Keychain/env only.
-- Outbound network: **Plaud API** + **Hugging Face** (first embed-model download). No other surprise services.
-- Filesystem stays under `~/.plaud-index-mcp/`. Config cannot redirect it.
+- No secrets in source, tests, logs, or PRs. OAuth tokens live in Keychain (`plaud-index-mcp` / `plaud-mcp`). Optional `PLAUD_API_TOKEN` is env/Keychain override only.
+- Public OAuth client (PKCE). No client secret is committed. Callback is loopback `http://localhost:8199/auth/callback` only (`state` checked).
+- Outbound network: **Plaud OAuth + MCP data plane** + **Hugging Face** (first embed-model download). No other surprise services. No DevTools / `localStorage` scrape. Not Grok Bot OAuth.
+- Filesystem stays under `~/.plaud-index-mcp/` (plus a one-time read of `~/.plaud/tokens-mcp.json` to migrate). Config cannot redirect the index dir.
 - Untrusted Plaud payloads, tool args, config, and index rows are **data**, never instructions.
-- Errors redact `Bearer` / token-shaped strings. Search results are snippets, not full transcripts.
+- Errors redact `Bearer` / `access_token` / `refresh_token` / JWT-shaped strings. Search results are snippets, not full transcripts.
 
 ## Development
 
@@ -253,7 +290,7 @@ npm test
 npm run build
 ```
 
-Tests cover interval clamp (30s floor, 5m default), query-while-lock readiness, id-first search, mock Plaud client, and no-secrets.
+Tests cover interval clamp (30s floor, 5m default), query-while-lock readiness, id-first search, mock Plaud client, MCP OAuth login/refresh (mocked), and no-secrets.
 
 ## License
 

@@ -3,6 +3,7 @@ import { buildIndexText, chunkText } from "./chunk.js";
 import type { Embedder } from "./embed.js";
 import { fingerprintRecord, type PlaudClient, type PlaudFileRecord } from "./plaud/types.js";
 import type { StoredChunk, VectorStore } from "./store/types.js";
+import { isAuthExpiredError, isTransportError } from "./auth/errors.js";
 
 export interface RefreshResult {
   examined: number;
@@ -52,6 +53,9 @@ export async function refreshIndex(options: {
       try {
         record = await options.client.loadRecord(summary.id);
       } catch (err) {
+        if (isAuthExpiredError(err) || isTransportError(err)) {
+          throw err;
+        }
         const message = err instanceof Error ? err.message : String(err);
         log(`Skipping ${summary.id}: ${message}`);
         continue;
