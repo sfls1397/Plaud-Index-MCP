@@ -121,21 +121,42 @@ export function writeKeychainPassword(options: {
   const osascriptBin = options.osascriptBin || "/usr/bin/osascript";
   const args = ["-l", "JavaScript", "-e", keychainWriteJxa(options.service, options.account)];
   return new Promise((resolve, reject) => {
-    const child = spawnImpl(osascriptBin, args, { stdio: ["pipe", "pipe", "pipe"] });
-    child.on("error", () => {
-      reject(new Error("Keychain write failed. Run `plaud-index-mcp login` from a logged-in user session."));
-    });
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
+    const failed = new Error(
+      "Keychain write failed. Run `plaud-index-mcp login` from a logged-in user session."
+    );
+    let settled = false;
+    const succeed = () => {
+      if (settled) {
         return;
       }
-      reject(new Error("Keychain write failed. Run `plaud-index-mcp login` from a logged-in user session."));
+      settled = true;
+      resolve();
+    };
+    const fail = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(failed);
+    };
+    const child = spawnImpl(osascriptBin, args, { stdio: ["pipe", "pipe", "pipe"] });
+    child.on("error", fail);
+    child.on("close", (code) => {
+      if (code === 0) {
+        succeed();
+        return;
+      }
+      fail();
     });
     if (!child.stdin) {
-      reject(new Error("Keychain write failed. Run `plaud-index-mcp login` from a logged-in user session."));
+      fail();
       return;
     }
+    // osascript may exit before stdin drains; write then emits EPIPE. Handle
+    // it before write so a closed pipe cannot crash the process.
+    child.stdin.on("error", () => {
+      /* EPIPE / closed pipe: child close/error settles the promise. */
+    });
     child.stdin.write(options.value);
     child.stdin.end();
   });

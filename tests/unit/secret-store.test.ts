@@ -63,4 +63,31 @@ describe("Keychain secret write", () => {
     expect(captured.stdin).toBe(secret);
     expect(store.describe()).toMatch(/macOS Keychain/);
   });
+
+  it("does not crash with uncaught EPIPE if osascript exits before stdin drain", async () => {
+    const spawnImpl: SpawnImpl = () => {
+      const stdin = new PassThrough();
+      const child = new EventEmitter() as ChildProcess;
+      child.stdin = stdin as ChildProcess["stdin"];
+      child.stdout = new PassThrough() as ChildProcess["stdout"];
+      child.stderr = new PassThrough() as ChildProcess["stderr"];
+      stdin.write = (() => {
+        const err = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+        queueMicrotask(() => {
+          stdin.emit("error", err);
+          child.emit("close", 1);
+        });
+        return false;
+      }) as typeof stdin.write;
+      return child;
+    };
+    await expect(
+      writeKeychainPassword({
+        service: KEYCHAIN_SERVICE,
+        account: KEYCHAIN_ACCOUNT_OAUTH,
+        value: ["pipe", "token"].join("-"),
+        spawnImpl
+      })
+    ).rejects.toThrow(/Keychain write failed/);
+  });
 });
