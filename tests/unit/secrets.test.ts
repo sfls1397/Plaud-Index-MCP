@@ -37,7 +37,7 @@ describe("no secrets in source, tests, or examples", () => {
   it("does not depend on Apple Tools MCP", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     expect(pkg.name).toBe("plaud-index-mcp");
-    expect(pkg.version).toBe("0.1.0");
+    expect(pkg.version).toBe("1.0.0");
     expect(pkg.description).toBe(
       "Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings"
     );

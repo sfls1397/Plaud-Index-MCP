@@ -2,7 +2,7 @@
 
 Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings.
 
-- **npm package:** `plaud-index-mcp` `0.1.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
+- **npm package:** `plaud-index-mcp` `1.0.0` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
 - **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
 
 Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, on-demand search MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
@@ -216,15 +216,24 @@ Example client config:
 
 Runs only while a client is connected (exits on stdin close). The always-on indexer daemon does **not** (LaunchAgent often attaches stdin to `/dev/null`).
 
+## Publish
+
+npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`). The publish job uses **Node 24** so npm is new enough for trusted publishing.
+
+1. After this workflow is on `main`, bootstrap the package on npmjs if it does not exist yet (trusted publisher config needs the package name). Attach GitHub Actions for `sfls1397/Plaud-Index-MCP` as the trusted publisher.
+2. Create GitHub Release **`v1.0.0`** (tag `v1.0.0`; package version is `1.0.0`).
+3. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
+4. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.0.0`, reload the indexer LaunchAgent, then **live search while the lock is held**.
+
+Later version bumps are locked by Peter. This repo does not invent them.
+
 ## Deploy / verify (always-on host only)
 
-This product has **no MacBook Development clone**. After npm publish (when Peter asks), required verify is the **always-on host only** (Peter’s deploy host today: Mac Mini):
+This product has **no MacBook Development clone**. After npm publish, required verify is the **always-on host only** (Peter’s deploy host today: Mac Mini):
 
 1. `npm install -g plaud-index-mcp@<version>` (no clone)
 2. Reload the indexer LaunchAgent
 3. **Live search while the indexer holds the lock** (query tools must succeed against the populated index)
-
-Publish / version bumps beyond `0.1.0` are locked by Peter. This repo does not invent them.
 
 ## Security
 
