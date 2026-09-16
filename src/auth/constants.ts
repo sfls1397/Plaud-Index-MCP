@@ -39,6 +39,35 @@ export const REFRESH_SKEW_MS = 60_000;
 
 export const RELLOGIN_MESSAGE = "Plaud auth expired. Re-run: plaud-index-mcp login";
 
+/** Persist failure after a successful OAuth token exchange (CLI). */
+export const KEYCHAIN_WRITE_FAILED_MESSAGE =
+  "Keychain write failed. Authorization succeeded, but tokens could not be saved. Run `plaud-index-mcp login` from a logged-in GUI/Terminal session on the host — not via LaunchAgent. Re-run login for a fresh authorize URL (clicking Allow again will get connection refused because the callback listener has exited).";
+
+/** Persist failure after a successful OAuth token exchange (browser callback page). */
+export const KEYCHAIN_WRITE_FAILED_PAGE =
+  "Keychain write failed. Authorization succeeded, but tokens could not be saved. Re-run plaud-index-mcp login from a logged-in Terminal session on this host (not LaunchAgent). Do not click Allow again — the callback listener has stopped.";
+
+export const SECRET_STORE_WRITE_FAILED_MESSAGE =
+  "Token store write failed. Authorization succeeded, but tokens could not be saved. Re-run `plaud-index-mcp login`.";
+
+/** Persist looked like it succeeded but Keychain did not hold the token JSON. */
+export const KEYCHAIN_READBACK_FAILED_MESSAGE =
+  "Keychain write failed: read-back did not match the saved token (empty, '-', or a different payload). Re-run `plaud-index-mcp login` from a logged-in GUI/Terminal session.";
+
+/** `security -i` command line would exceed Apple's 4096-byte buffer. */
+export const KEYCHAIN_LINE_TOO_LONG_MESSAGE =
+  "Keychain write failed: OAuth token JSON is too large for macOS `security -i` (4096-byte command line). The item was not written. Re-run `plaud-index-mcp login` from a logged-in GUI/Terminal session.";
+
+/**
+ * Always-on host login notes. Shown in `login --help` and during login.
+ */
+export const LOGIN_HOST_NOTES = [
+  "Host browser must already be signed into Plaud before Allow (otherwise login/workspace walls; localhost callback never completes).",
+  "Login waits about 2 minutes; if the URL expires, re-run `plaud-index-mcp login` for a fresh URL.",
+  "Allow/callback must reach the same machine as the :8199 listener (or `ssh -L 8199:localhost:8199` when authorizing remotely).",
+  "`plaud-index-mcp login` must run in a logged-in GUI/Terminal session — not via LaunchAgent (OAuth can complete then Keychain write fails)."
+].join("\n");
+
 export const AUTH_TRANSIENT_MESSAGE =
   "Cannot reach Plaud (network or server error). Will retry next cycle; tokens were not cleared.";
 

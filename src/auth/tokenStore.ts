@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { KEYCHAIN_ACCOUNT_OAUTH, PLAUD_MCP_TOKEN_FILENAME } from "./constants.js";
+import { KEYCHAIN_ACCOUNT_OAUTH, PLAUD_MCP_TOKEN_FILENAME, SECRET_STORE_WRITE_FAILED_MESSAGE } from "./constants.js";
+import { isSecretStoreWriteError, SecretStoreWriteError } from "./errors.js";
 import { parseStoredTokenSet, serializeTokenSet } from "./oauth.js";
 import { createSecretStore } from "./secretStore.js";
 import type { PlaudTokenSet, SecretStore } from "./types.js";
@@ -38,7 +39,17 @@ export class PlaudTokenStore {
   }
 
   async save(tokenSet: PlaudTokenSet): Promise<void> {
-    await this.store.set(this.account, serializeTokenSet(tokenSet));
+    try {
+      await this.store.set(this.account, serializeTokenSet(tokenSet));
+    } catch (err) {
+      if (isSecretStoreWriteError(err)) {
+        throw err;
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new SecretStoreWriteError(
+        `${SECRET_STORE_WRITE_FAILED_MESSAGE}${detail ? ` Details: ${detail}` : ""}`
+      );
+    }
   }
 
   async clear(): Promise<void> {

@@ -1,6 +1,6 @@
 {
   "name": "plaud-index-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Semantic search for Plaud notes/transcripts — always-on indexer with local embeddings",
   "type": "module",
   "main": "dist/cli.js",
@@ -35,6 +35,7 @@
   },
   "files": [
     "dist/",
+    "docs/",
     "examples/",
     "README.md",
     "LICENSE"
