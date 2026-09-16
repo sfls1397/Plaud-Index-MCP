@@ -180,7 +180,7 @@ describe("plaud-index-mcp login / logout", () => {
     expect(describeAuthFailure(new SecretStoreWriteError())).not.toMatch(/Token exchange failed/i);
   });
 
-  it("prints Mini host notes on login --help", async () => {
+  it("prints always-on host notes on login --help", async () => {
     const logs: string[] = [];
     const code = await runLoginCommand({
       argv: ["node", "cli.js", "login", "--help"],
@@ -197,6 +197,7 @@ describe("plaud-index-mcp login / logout", () => {
     expect(joined).toMatch(/8199/);
     expect(joined).toMatch(/logged-in GUI\/Terminal/);
     expect(joined).toMatch(/not via LaunchAgent/);
+    expect(joined).toMatch(/docs\/host-setup\.md/);
   });
 
   it("reports Keychain write failure after a successful token exchange", async () => {

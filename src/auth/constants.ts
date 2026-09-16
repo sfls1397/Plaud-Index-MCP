@@ -51,7 +51,7 @@ export const SECRET_STORE_WRITE_FAILED_MESSAGE =
   "Token store write failed. Authorization succeeded, but tokens could not be saved. Re-run `plaud-index-mcp login`.";
 
 /**
- * Mini-side login host notes (always-on host). Shown in `login --help` and during login.
+ * Always-on host login notes. Shown in `login --help` and during login.
  */
 export const LOGIN_HOST_NOTES = [
   "Host browser must already be signed into Plaud before Allow (otherwise login/workspace walls; localhost callback never completes).",

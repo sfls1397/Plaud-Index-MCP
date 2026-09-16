@@ -4,6 +4,7 @@ Semantic search for Plaud notes/transcripts — always-on indexer with local emb
 
 - **npm package:** `plaud-index-mcp` `1.1.1` (lowercase, same pattern as Apple-Tools-MCP → `apple-tools-mcp`)
 - **GitHub repo:** [sfls1397/Plaud-Index-MCP](https://github.com/sfls1397/Plaud-Index-MCP)
+- **Host setup:** [docs/host-setup.md](docs/host-setup.md)
 
 Ops patterns (config interval, LaunchAgent, lock, local embed + reindex-on-bump, on-demand search MCP) are copied from Apple Tools MCP as a playbook only — **no shared code or dependency**.
 
@@ -54,58 +55,59 @@ All under `~/.plaud-index-mcp/` (config cannot override the directory):
 
 Test/dev only: `PLAUD_INDEX_HOME` relocates that directory.
 
-## Install
+## Setup (always-on macOS host)
 
-**Always-on indexer host (Peter’s deploy host today: Mac Mini): global npm only — no git clone.** This product has no MacBook Development clone.
+**Walkthrough:** [docs/host-setup.md](docs/host-setup.md) — install, Plaud browser sign-in, Terminal login, Allow, Keychain, LaunchAgent, verify, and failure modes.
+
+Global npm only (**no git clone** on the host). Requires Node.js 18+. Ingesting Plaud notes into Notion is a separate workflow; this MCP does not replace it.
+
+Happy path:
 
 ```bash
-npm install -g plaud-index-mcp
+# PATH must include the global npm bin.
+# Example (not the only layout): user-local Node at ~/.local/node
+export PATH="$HOME/.local/node/bin:$PATH"
+# Example: Homebrew Node
+# export PATH="/opt/homebrew/bin:$PATH"
+
+npm install -g plaud-index-mcp@1.1.1
+which plaud-index-mcp
 ```
 
-Requires Node.js 18+.
-
-### Sign in (shareable path)
-
-On the **always-on host** (Peter’s deploy host today: Mac Mini — not Grok Bot’s `user-Plaud` session):
+1. In the **host** browser, sign into [Plaud](https://web.plaud.ai) **before Allow** so you are past the login/workspace wall.
+2. In **Terminal on the host** (logged-in GUI/Terminal session — **not** via LaunchAgent):
 
 ```bash
 plaud-index-mcp login
 ```
 
-This is Plaud **consumer MCP** browser OAuth (same public-client PKCE flow `@plaud-ai/mcp` uses — not Partner developer API tokens, not DevTools / `localStorage`).
+3. Open the printed URL on the **same machine** as the `:8199` listener. Click **Allow once**.
+4. Confirm Keychain (metadata only — do not add `-w`):
 
-`plaud-index-mcp login --help` prints the same host notes.
+```bash
+security find-generic-password -s plaud-index-mcp -a plaud-mcp
+```
 
-**Host notes (Mini-side login):**
+5. Reload the indexer LaunchAgent, then search **while** `~/.plaud-index-mcp/indexer.lock` is held.
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.plaud-index-mcp.indexer"
+```
+
+`plaud-index-mcp login --help` prints the host notes. Logout: `plaud-index-mcp logout`.
 
 - Host browser must already be signed into Plaud before Allow (otherwise login/workspace walls; localhost callback never completes).
 - Login waits about **2 minutes**; if the URL expires, re-run `plaud-index-mcp login` for a fresh URL.
 - Allow/callback must reach the **same machine** as the `:8199` listener (or `ssh -L 8199:localhost:8199` when authorizing remotely).
 - `plaud-index-mcp login` must run in a **logged-in GUI/Terminal session** — not via LaunchAgent (OAuth can complete then Keychain write fails).
 
-1. The CLI prints an authorize URL and tries to open a browser.
-2. Click **Allow** on Plaud’s page.
-3. Success message: tokens are in **Keychain** `plaud-index-mcp` / `plaud-mcp`.
-4. Reload the indexer LaunchAgent. It pulls notes/transcripts from the same MCP data plane (`list_files` / `get_file` / `get_note` / `get_transcript`) and refreshes the access token headlessly until Plaud rejects the refresh.
+**If it fails:** Allow from another computer without `ssh -L 8199:localhost:8199` → connection refused. A **second Allow** after login exits → connection refused (start a **fresh** login). Browser **Token exchange failed** on `1.1.0` often meant **Keychain write failed** after a successful exchange — use **`1.1.1`+**, which says Keychain write failed when persist is the problem. Login waits about **2 minutes**. Details: [docs/host-setup.md](docs/host-setup.md#if-it-fails).
 
-If authorization succeeds but Keychain cannot save the tokens, the CLI and the localhost callback page say **Keychain write failed** (not only “Token exchange failed”). Re-run login from a logged-in Terminal session; clicking Allow again will get connection refused because the callback listener has exited.
-
-If you SSH to the host and the browser is on another machine, forward the OAuth callback port **before** login:
-
-```bash
-ssh -L 8199:localhost:8199 USER@HOST
-plaud-index-mcp login --no-browser   # then open the printed URL on the machine that can hit localhost:8199
-```
-
-Logout:
-
-```bash
-plaud-index-mcp logout
-```
-
-If a refresh/401 fails, the indexer logs `Plaud auth expired. Re-run: plaud-index-mcp login` (no secrets). Official Plaud MCP’s plaintext `~/.plaud/tokens-mcp.json` is **read once and migrated into Keychain** if present; it is not the LaunchAgent store.
+This is Plaud **consumer MCP** browser OAuth (public-client PKCE, same flow `@plaud-ai/mcp` uses — not Partner developer API tokens, not DevTools / `localStorage`). Tokens go to Keychain `plaud-index-mcp` / `plaud-mcp`. The indexer LaunchAgent refreshes headless.
 
 **The already-published `1.0.0` Keychain-manual / Bearer-only path (`security add-generic-password … -a plaud-api` / `PLAUD_API_TOKEN`) is not the shareable path.** `1.1.0` introduced `plaud-index-mcp login`; this release is **`1.1.1`**. Leave Bearer-only as a power-user override.
+
+If `~/.plaud/tokens-mcp.json` exists, it is **read once and migrated into Keychain**; it is not the LaunchAgent store. If a refresh/401 fails, the indexer logs `Plaud auth expired. Re-run: plaud-index-mcp login` (no secrets).
 
 ## Indexer auth details
 
@@ -269,17 +271,17 @@ npm publish is **GitHub Release → Actions OIDC** (no `NPM_TOKEN`). The publish
 1. After this workflow is on `main`, bootstrap the package on npmjs if it does not exist yet (trusted publisher config needs the package name). Attach GitHub Actions for `sfls1397/Plaud-Index-MCP` as the trusted publisher.
 2. Create GitHub Release **`v1.1.1`** (tag `v1.1.1`; package version is `1.1.1`).
 3. The `publish-npm` job builds `dist/` (`npm ci && npm run build` — `dist/` is not committed) then `npm publish --access public`.
-4. Always-on host (Peter’s deploy host today: Mac Mini): `npm install -g plaud-index-mcp@1.1.1`, run `plaud-index-mcp login` once, reload the indexer LaunchAgent, then **live search while the lock is held**.
+4. Always-on host: follow [docs/host-setup.md](docs/host-setup.md) — `npm install -g plaud-index-mcp@1.1.1`, `plaud-index-mcp login` once, reload the indexer LaunchAgent, then **live search while the lock is held**.
 
 Later version bumps are locked by Peter. This repo does not invent them.
 
 ## Deploy / verify (always-on host only)
 
-This product has **no MacBook Development clone**. After npm publish, required verify is the **always-on host only** (Peter’s deploy host today: Mac Mini):
+After npm publish, required verify is the **always-on macOS host** (global npm — no clone). One example layout is a Mac Mini with Node under `~/.local/node`. Step-by-step: [docs/host-setup.md](docs/host-setup.md).
 
-1. `npm install -g plaud-index-mcp@<version>` (no clone)
-2. `plaud-index-mcp login` on that host (browser OAuth; SSH-forward `8199` if needed)
-3. Reload the indexer LaunchAgent (`examples/load-token-from-keychain.sh`)
+1. `npm install -g plaud-index-mcp@<version>`
+2. `plaud-index-mcp login` in a host GUI Terminal (browser already signed into Plaud; SSH-forward `8199` only if Allow is remote)
+3. Confirm Keychain `plaud-index-mcp` / `plaud-mcp`, reload the indexer LaunchAgent
 4. **Live search while the indexer holds the lock** (query tools must succeed against the populated index)
 
 ## Security

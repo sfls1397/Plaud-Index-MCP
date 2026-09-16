@@ -48,6 +48,7 @@ export function loginHelpText(): string {
     "Usage: plaud-index-mcp login [--no-browser|--print-url]",
     "",
     "Sign in on the always-on host with Plaud consumer MCP OAuth. Tokens go to Keychain (macOS) or the file store (Linux / PLAUD_INDEX_HOME).",
+    "Full walkthrough: docs/host-setup.md (shipped with this package).",
     "",
     LOGIN_HOST_NOTES
   ].join("\n");

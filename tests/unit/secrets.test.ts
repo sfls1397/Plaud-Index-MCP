@@ -61,12 +61,36 @@ describe("no secrets in source, tests, or examples", () => {
     expect(readme).toMatch(/8199/);
     expect(readme).toMatch(/plaud-index-mcp` `1\.1\.1/);
     expect(readme).toMatch(/plaud-index-mcp@1\.1\.1/);
+    expect(readme).toMatch(/docs\/host-setup\.md/);
     expect(readme).toMatch(/signed into Plaud before Allow/);
     expect(readme).toMatch(/2 minutes/);
     expect(readme).toMatch(/logged-in GUI\/Terminal/);
     expect(readme).toMatch(/not via LaunchAgent/);
     expect(readme).toMatch(/Keychain write failed/);
+    expect(readme).toMatch(/~\/\.local\/node/);
     expect(readme).not.toMatch(/MacBook Development clone is required/i);
+    expect(readme).not.toMatch(/Office Manager/i);
+    expect(readme).not.toMatch(/notion\.so/i);
+  });
+
+  it("ships an always-on host setup walkthrough a stranger can follow", () => {
+    const setup = fs.readFileSync(path.join(root, "docs/host-setup.md"), "utf8");
+    expect(setup).toMatch(/always-on/);
+    expect(setup).toMatch(/plaud-index-mcp login/);
+    expect(setup).toMatch(/8199/);
+    expect(setup).toMatch(/signed into Plaud/);
+    expect(setup).toMatch(/2 minutes/);
+    expect(setup).toMatch(/LaunchAgent/);
+    expect(setup).toMatch(/Keychain write failed/);
+    expect(setup).toMatch(/ssh -L 8199:localhost:8199/);
+    expect(setup).toMatch(/~\/\.local\/node/);
+    expect(setup).toMatch(/plaud-index-mcp@1\.1\.1/);
+    expect(setup).toMatch(/does not replace/);
+    expect(setup).not.toMatch(/Office Manager/i);
+    expect(setup).not.toMatch(/notion\.so/i);
+    expect(setup).not.toMatch(/MacBook Development clone/i);
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    expect(pkg.files).toContain("docs/");
   });
 
   it("does not commit OAuth client secrets", () => {
