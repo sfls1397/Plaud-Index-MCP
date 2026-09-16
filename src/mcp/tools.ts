@@ -15,15 +15,6 @@ export async function requireIndex(
   store: VectorStore,
   session: QuerySession
 ): Promise<string | null> {
-  const indexing = indexQueryGate({
-    sessionIndexComplete: session.sessionIndexComplete,
-    ownsIndexLock: session.ownsIndexLock,
-    indexReady: true,
-    isFirstEverRun: session.isFirstEverRun
-  });
-  if (!indexing.ok) {
-    return indexing.message;
-  }
   const ready = await store.isReady();
   const gate = indexQueryGate({
     sessionIndexComplete: session.sessionIndexComplete,

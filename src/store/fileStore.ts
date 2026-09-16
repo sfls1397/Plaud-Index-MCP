@@ -36,7 +36,7 @@ export class FileVectorStore implements VectorStore {
 
   async isReady(): Promise<boolean> {
     const disk = this.readDisk();
-    return disk.metadata.populated && disk.chunks.length > 0;
+    return disk.chunks.length > 0;
   }
 
   async getMetadata(): Promise<IndexMetadata> {

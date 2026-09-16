@@ -1,9 +1,10 @@
 /**
  * Index-session search gating.
  *
- * Readiness is on-disk populated index, not "this process finished its own
- * first index cycle." A query MCP that lost the lock (indexer daemon holds
- * it) must succeed when the shared vector-index is populated.
+ * Readiness is a populated on-disk index. Query tools succeed whenever that
+ * index exists — including when the indexer daemon holds the lock and this
+ * MCP process never ran its own first cycle. Do not fail with
+ * "index not available" in that case.
  */
 
 export const INDEX_UNAVAILABLE_MESSAGE =
@@ -54,11 +55,13 @@ export function indexQueryGate(args: {
   isFirstEverRun?: boolean;
 }): { ok: boolean; message: string | null } {
   const { sessionIndexComplete, ownsIndexLock, indexReady, isFirstEverRun = false } = args;
+  // On-disk populated index always wins. Query MCP must succeed while the
+  // indexer holds the lock — readiness is not "this process finished a cycle."
+  if (indexReady) {
+    return { ok: true, message: null };
+  }
   if (isSearchBlockedByIndexing(sessionIndexComplete, ownsIndexLock)) {
     return { ok: false, message: indexingInProgressMessage(isFirstEverRun) };
   }
-  if (!indexReady) {
-    return { ok: false, message: INDEX_UNAVAILABLE_MESSAGE };
-  }
-  return { ok: true, message: null };
+  return { ok: false, message: INDEX_UNAVAILABLE_MESSAGE };
 }

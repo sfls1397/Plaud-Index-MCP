@@ -57,20 +57,18 @@ export class LanceVectorStore implements VectorStore {
   }
 
   async isReady(): Promise<boolean> {
-    const meta = this.readMeta();
-    if (meta.populated && meta.noteCount > 0) {
-      return true;
-    }
     try {
-      const db = await this.connect();
-      const names = await db.tableNames();
+      let db = await this.connect();
+      let names = await db.tableNames();
       if (!names.includes(NOTES_TABLE)) {
-        if (lanceDirExists(this.indexDir, NOTES_TABLE)) {
+        const onDisk = lanceDirExists(this.indexDir, NOTES_TABLE) || this.readMeta().populated;
+        if (onDisk) {
           await this.resetConnection();
-          const again = await this.connect();
-          const renamed = await again.tableNames();
-          return renamed.includes(NOTES_TABLE);
+          db = await this.connect();
+          names = await db.tableNames();
         }
+      }
+      if (!names.includes(NOTES_TABLE)) {
         return false;
       }
       const table = await db.openTable(NOTES_TABLE);

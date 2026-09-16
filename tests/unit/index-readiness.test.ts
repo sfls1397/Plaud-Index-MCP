@@ -163,4 +163,73 @@ describe("indexQueryGate", () => {
     expect(gate.ok).toBe(true);
     expect(gate.message).not.toBe(INDEXING_NEW_DATA_MESSAGE);
   });
+
+  it("populated on-disk index succeeds even if this process still owns the lock", () => {
+    const gate = indexQueryGate({
+      sessionIndexComplete: false,
+      ownsIndexLock: true,
+      indexReady: true,
+      isFirstEverRun: true
+    });
+    expect(gate.ok).toBe(true);
+    expect(String(gate.message || "")).not.toMatch(/index not available/i);
+  });
+});
+
+describe("on-disk index freshness", () => {
+  it("isReady becomes true after another writer populates the same directory", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "plaud-fresh-"));
+    const reader = new FileVectorStore(dir);
+    expect(await reader.isReady()).toBe(false);
+
+    const writer = new FileVectorStore(dir);
+    const embedder = createHashEmbedder();
+    const [vector] = await embedder.embed(["populated later"]);
+    await writer.upsertChunks([
+      {
+        id: "file-later-001:0",
+        fileId: "file-later-001",
+        title: "Later note",
+        createdAt: "2026-09-15T15:00:00.000Z",
+        durationMs: 1000,
+        fingerprint: "later",
+        chunkIndex: 0,
+        kind: "title",
+        text: "populated later",
+        vector
+      }
+    ]);
+
+    expect(await reader.isReady()).toBe(true);
+    const session: QuerySession = {
+      sessionIndexComplete: false,
+      ownsIndexLock: false,
+      isFirstEverRun: true
+    };
+    const text = await runPlaudSearch(reader, embedder, session, { query: "populated later" });
+    expect(text).not.toMatch(/index not available/i);
+    expect(JSON.parse(text).results[0].file_id).toBe("file-later-001");
+  });
+
+  it("plaud_search honors optional date_from / date_to", async () => {
+    const { store, embedder } = await populatedStore();
+    const session: QuerySession = {
+      sessionIndexComplete: false,
+      ownsIndexLock: false,
+      isFirstEverRun: false
+    };
+    const hit = await runPlaudSearch(store, embedder, session, {
+      query: "indexer",
+      date_from: "2026-09-15",
+      date_to: "2026-09-15"
+    });
+    expect(JSON.parse(hit).results[0].file_id).toBe("file-standup-001");
+
+    const miss = await runPlaudSearch(store, embedder, session, {
+      query: "indexer",
+      date_from: "2020-01-01",
+      date_to: "2020-01-02"
+    });
+    expect(JSON.parse(miss).results).toEqual([]);
+  });
 });
