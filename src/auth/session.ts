@@ -1,4 +1,4 @@
-import { REFRESH_SKEW_MS, RELLOGIN_MESSAGE } from "./constants.js";
+import { REFRESH_SKEW_MS } from "./constants.js";
 import { AuthExpiredError, isAuthExpiredError, isTransportError } from "./errors.js";
 import { refreshTokenSet, resolveOAuthEndpoints, tokenNeedsRefresh } from "./oauth.js";
 import { loadOrMigrateTokenSet, type PlaudTokenStore } from "./tokenStore.js";
@@ -52,14 +52,12 @@ export async function createAuthSession(options: {
       await persist(next);
       return next.access_token;
     } catch (err) {
-      if (isAuthExpiredError(err)) {
-        options.log?.(RELLOGIN_MESSAGE);
-        throw err;
-      }
       if (isTransportError(err)) {
         throw err;
       }
-      options.log?.(RELLOGIN_MESSAGE);
+      if (isAuthExpiredError(err)) {
+        throw err;
+      }
       throw new AuthExpiredError();
     }
   }

@@ -7,6 +7,7 @@ import { refreshIndex } from "../refresh.js";
 import { describeAuthFailure } from "../auth/login.js";
 import { AuthExpiredError, isAuthExpiredError } from "../auth/errors.js";
 import { RELLOGIN_MESSAGE } from "../auth/constants.js";
+import { createAuthNoticeLog, isAuthNotice } from "../auth/logOnce.js";
 import {
   applyIndexerCycleEnd,
   beginIndexCycle,
@@ -36,7 +37,7 @@ export async function runOneRefresh(options: {
   log?: (msg: string) => void;
 }): Promise<void> {
   const env = options.env || process.env;
-  const log = options.log || ((msg) => console.error(msg));
+  const log = createAuthNoticeLog(options.log || ((msg) => console.error(msg)));
   let client;
   try {
     client = await createPlaudClient({ env, log });
@@ -70,6 +71,7 @@ export async function runIndexerDaemon(options: {
 } = {}): Promise<IndexerState> {
   const env = options.env || process.env;
   const indexerMode = options.indexerMode !== false;
+  const log = createAuthNoticeLog((msg) => console.error(msg));
   const resolved = loadResolvedIndexInterval({ env });
   logResolvedInterval(resolved);
 
@@ -149,14 +151,11 @@ export async function runIndexerDaemon(options: {
       state.isFirstEverRun = !(await vectorStore.isReady());
       state.ownsIndexLock = lock.ownsLock;
       syncQuerySession();
-      await runOneRefresh({ env, store: vectorStore });
+      await runOneRefresh({ env, store: vectorStore, log });
       applyEnd(true);
     } catch (err) {
-      if (isAuthExpiredError(err) || err instanceof AuthExpiredError) {
-        console.error(RELLOGIN_MESSAGE);
-      } else {
-        console.error(`Indexing error: ${describeAuthFailure(err)}`);
-      }
+      const text = describeAuthFailure(err);
+      log(isAuthNotice(text) ? text : `Indexing error: ${text}`);
       applyEnd(false);
     }
   }

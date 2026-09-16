@@ -1,19 +1,12 @@
-import fs from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createEmbedder, type Embedder } from "../embed.js";
 import { TOOL_DEFINITIONS, runPlaudGet, runPlaudSearch, type QuerySession } from "./tools.js";
 import type { VectorStore } from "../store/types.js";
+import { packageVersion } from "../version.js";
 
-export function packageVersion(): string {
-  const pkgPath = new URL("../../package.json", import.meta.url);
-  try {
-    return JSON.parse(fs.readFileSync(pkgPath, "utf8")).version as string;
-  } catch {
-    return "1.1.0";
-  }
-}
+export { packageVersion } from "../version.js";
 
 export function createQueryServer(options: {
   store: VectorStore;

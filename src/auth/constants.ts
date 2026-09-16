@@ -39,4 +39,7 @@ export const REFRESH_SKEW_MS = 60_000;
 
 export const RELLOGIN_MESSAGE = "Plaud auth expired. Re-run: plaud-index-mcp login";
 
+export const AUTH_TRANSIENT_MESSAGE =
+  "Cannot reach Plaud (network or server error). Will retry next cycle; tokens were not cleared.";
+
 export const PLAUD_MCP_TOKEN_FILENAME = "tokens-mcp.json";

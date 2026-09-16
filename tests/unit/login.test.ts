@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { runLoginCommand, runLogoutCommand } from "../../src/auth/login.js";
-import { MemorySecretStore } from "../../src/auth/secretStore.js";
-import { KEYCHAIN_ACCOUNT_OAUTH } from "../../src/auth/constants.js";
+import { describeAuthFailure, runLoginCommand, runLogoutCommand } from "../../src/auth/login.js";
+import { createSecretStore, MemorySecretStore } from "../../src/auth/secretStore.js";
+import { AUTH_TRANSIENT_MESSAGE, KEYCHAIN_ACCOUNT_OAUTH, RELLOGIN_MESSAGE } from "../../src/auth/constants.js";
 import { serializeTokenSet } from "../../src/auth/oauth.js";
 import { runOAuthCallback } from "../../src/auth/callback.js";
+import { AuthExpiredError, AuthTransportError } from "../../src/auth/errors.js";
+import { mkdtempSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 describe("plaud-index-mcp login / logout", () => {
   it("completes PKCE login and stores tokens without logging secrets", async () => {
@@ -57,9 +61,11 @@ describe("plaud-index-mcp login / logout", () => {
     expect(stored.access_token).toBe("login-access");
     expect(stored.refresh_token).toBe("login-refresh");
     const joined = logs.join("\n");
+    expect(joined).toMatch(/Plaud Index MCP login \(v1\.1\.0\)/);
     expect(joined).toMatch(/Signed in/);
-    expect(joined).toMatch(/plaud-index-mcp/);
+    expect(joined).toMatch(/in-memory store/);
     expect(joined).toMatch(/plaud-mcp/);
+    expect(joined).not.toMatch(/Keychain/);
     expect(joined).not.toContain("login-access");
     expect(joined).not.toContain("login-refresh");
     expect(joined).toMatch(/8199/);
@@ -94,7 +100,10 @@ describe("plaud-index-mcp login / logout", () => {
     });
     expect(code).toBe(0);
     expect(exchanged).toBe(false);
+    expect(logs.join("\n")).toMatch(/Plaud Index MCP login \(v1\.1\.0\)/);
     expect(logs.join("\n")).toMatch(/Already signed in/);
+    expect(logs.join("\n")).toMatch(/in-memory store/);
+    expect(logs.join("\n")).not.toMatch(/Keychain/);
   });
 
   it("clears Keychain on logout", async () => {
@@ -111,8 +120,60 @@ describe("plaud-index-mcp login / logout", () => {
     });
     expect(code).toBe(0);
     expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toBeNull();
+    expect(logs.join("\n")).toMatch(/Plaud Index MCP logout \(v1\.1\.0\)/);
     expect(logs.join("\n")).toMatch(/Logged out/);
+    expect(logs.join("\n")).toMatch(/in-memory store/);
+    expect(logs.join("\n")).not.toMatch(/Keychain/);
     expect(logs.join("\n")).not.toContain("bye-access");
+  });
+
+  it("names the file store on login when PLAUD_INDEX_HOME is set", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "plaud-login-file-"));
+    const store = createSecretStore({ env: { PLAUD_INDEX_HOME: home }, platform: "linux" });
+    const logs: string[] = [];
+    const code = await runLoginCommand({
+      env: { PLAUD_INDEX_HOME: home },
+      argv: ["node", "cli.js", "login"],
+      store,
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes("/access-token") && !url.includes("refresh")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "file-access",
+              refresh_token: "file-refresh",
+              token_type: "Bearer",
+              expires_in: 3600
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.endsWith("/open/third-party/users/current")) {
+          return new Response(JSON.stringify({ id: "user-1" }), { status: 200 });
+        }
+        return new Response("nope", { status: 404 });
+      },
+      openBrowser: () => {},
+      runCallback: async (opts) => {
+        await opts.exchangeCode("auth-code");
+        return { status: "success" };
+      },
+      log: (m) => logs.push(m)
+    });
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toMatch(/file store/);
+    expect(logs.join("\n")).toContain(home);
+    expect(logs.join("\n")).not.toMatch(/Keychain/);
+  });
+
+  it("maps transport failures away from the auth-expired copy", () => {
+    expect(describeAuthFailure(new AuthExpiredError())).toBe(RELLOGIN_MESSAGE);
+    expect(describeAuthFailure(new AuthTransportError("Plaud token refresh failed (503)."))).toBe(
+      AUTH_TRANSIENT_MESSAGE
+    );
+    expect(describeAuthFailure(new AuthTransportError("Plaud token refresh failed (503)."))).not.toMatch(
+      /auth expired/i
+    );
   });
 });
 

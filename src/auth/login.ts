@@ -1,4 +1,4 @@
-import { LOGIN_TIMEOUT_MS, OAUTH_CALLBACK_PORT, RELLOGIN_MESSAGE } from "./constants.js";
+import { AUTH_TRANSIENT_MESSAGE, LOGIN_TIMEOUT_MS, OAUTH_CALLBACK_PORT, RELLOGIN_MESSAGE } from "./constants.js";
 import { runOAuthCallback } from "./callback.js";
 import { AuthExpiredError, isAuthExpiredError, isTransportError } from "./errors.js";
 import {
@@ -10,6 +10,7 @@ import { createSecretStore, openBrowser } from "./secretStore.js";
 import { createAuthSession } from "./session.js";
 import type { SecretStore } from "./types.js";
 import { redactSecrets } from "../sanitize.js";
+import { packageVersion } from "../version.js";
 
 export function argvHasFlag(argv: string[], flag: string): boolean {
   return argv.includes(flag);
@@ -55,6 +56,7 @@ export async function runLoginCommand(options: {
   const env = options.env || process.env;
   const argv = options.argv || process.argv;
   const log = options.log || ((msg) => console.error(msg));
+  log(`Plaud Index MCP login (v${packageVersion()})`);
   const noBrowser = argvHasFlag(argv, "--no-browser") || argvHasFlag(argv, "--print-url");
   const store = options.store || createSecretStore({ env });
   const endpoints = resolveOAuthEndpoints(env);
@@ -74,9 +76,7 @@ export async function runLoginCommand(options: {
       fetchImpl: options.fetchImpl
     });
     if (probe === "ok") {
-      log(
-        "Already signed in. Tokens are in Keychain service `plaud-index-mcp` / account `plaud-mcp`."
-      );
+      log(`Already signed in. Tokens are in ${store.describe()}.`);
       return 0;
     }
     if (probe === "error") {
@@ -137,9 +137,7 @@ export async function runLoginCommand(options: {
           return 1;
         }
       }
-      log("Signed in. Access + refresh tokens stored in Keychain:");
-      log("  service: plaud-index-mcp");
-      log("  account: plaud-mcp");
+      log(`Signed in. Access + refresh tokens stored in ${store.describe()}.`);
       log("The indexer LaunchAgent will refresh this session headless. Do not copy Grok Bot OAuth.");
       return 0;
     }
@@ -170,6 +168,7 @@ export async function runLogoutCommand(options: {
 }): Promise<number> {
   const env = options.env || process.env;
   const log = options.log || ((msg) => console.error(msg));
+  log(`Plaud Index MCP logout (v${packageVersion()})`);
   const store = options.store || createSecretStore({ env });
   const session = await createAuthSession({ env, store, fetchImpl: options.fetchImpl, log });
   const stored = session.peek();
@@ -194,7 +193,7 @@ export async function runLogoutCommand(options: {
     }
   }
   await session.clear();
-  log("Logged out. Keychain item plaud-index-mcp / plaud-mcp cleared.");
+  log(`Logged out. Cleared ${store.describe()}.`);
   log("If Plaud MCP still has ~/.plaud/tokens-mcp.json, delete it only if you also want that client signed out.");
   return 0;
 }
@@ -204,7 +203,7 @@ export function describeAuthFailure(err: unknown): string {
     return RELLOGIN_MESSAGE;
   }
   if (isTransportError(err)) {
-    return "Cannot reach Plaud (network). Will retry next cycle; tokens were not cleared.";
+    return AUTH_TRANSIENT_MESSAGE;
   }
   const message = err instanceof Error ? err.message : String(err);
   return redactSecrets(message);

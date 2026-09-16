@@ -65,8 +65,7 @@ export async function loadOrMigrateTokenSet(options: {
     return { tokenSet: null, migrated: false, tokenStore };
   }
   await tokenStore.save(fromFile);
-  options.log?.(
-    `Migrated Plaud MCP tokens from ${filePath} into Keychain (service plaud-index-mcp / account plaud-mcp).`
-  );
+  const location = secretStore.describe();
+  options.log?.(`Migrated Plaud MCP tokens from ${filePath} into ${location}.`);
   return { tokenSet: fromFile, migrated: true, tokenStore };
 }

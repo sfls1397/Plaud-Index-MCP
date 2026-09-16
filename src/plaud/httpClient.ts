@@ -72,8 +72,7 @@ export class HttpPlaudClient implements PlaudClient {
   }
 
   async getFile(fileId: string): Promise<PlaudFileSummary> {
-    const id = assertFileId(fileId);
-    const payload = await this.getFirstJson([`/file/detail/${encodeURIComponent(id)}`, `/files/${encodeURIComponent(id)}`]);
+    const payload = await this.getFilePayload(fileId);
     const record = extractObject(payload);
     if (!record) {
       throw new Error("Plaud file not found");
@@ -83,10 +82,44 @@ export class HttpPlaudClient implements PlaudClient {
 
   async getNotes(fileId: string): Promise<PlaudNoteTab[]> {
     const id = assertFileId(fileId);
-    const filePayload = await this.getFirstJson([
-      `/file/detail/${encodeURIComponent(id)}`,
-      `/files/${encodeURIComponent(id)}`
+    return this.notesFromPayload(id, await this.getFilePayload(id));
+  }
+
+  async getTranscript(fileId: string): Promise<PlaudTranscriptPage> {
+    const id = assertFileId(fileId);
+    return this.transcriptFromPayload(id, await this.getFilePayload(id));
+  }
+
+  async loadRecord(fileId: string): Promise<PlaudFileRecord> {
+    const id = assertFileId(fileId);
+    const filePayload = await this.getFilePayload(id);
+    const record = extractObject(filePayload);
+    if (!record) {
+      throw new Error("Plaud file not found");
+    }
+    const summary = normalizeSummary(record);
+    const [notes, transcript] = await Promise.all([
+      this.notesFromPayload(id, filePayload),
+      this.transcriptFromPayload(id, filePayload)
     ]);
+    const transcriptText = transcript.utterances
+      .map((u) => (u.speaker ? `${u.speaker}: ${u.text}` : u.text))
+      .join("\n")
+      .trim();
+    return {
+      ...summary,
+      notes,
+      transcriptText,
+      utterances: transcript.utterances
+    };
+  }
+
+  private async getFilePayload(fileId: string): Promise<unknown> {
+    const id = assertFileId(fileId);
+    return this.getFirstJson([`/file/detail/${encodeURIComponent(id)}`, `/files/${encodeURIComponent(id)}`]);
+  }
+
+  private async notesFromPayload(id: string, filePayload: unknown): Promise<PlaudNoteTab[]> {
     const fromFile = notesFromFilePayload(filePayload);
     if (fromFile.length > 0) {
       return fromFile;
@@ -98,33 +131,13 @@ export class HttpPlaudClient implements PlaudClient {
     return notesFromFilePayload(notePayload);
   }
 
-  async getTranscript(fileId: string): Promise<PlaudTranscriptPage> {
-    const id = assertFileId(fileId);
-    const filePayload = await this.getFirstJson([
-      `/file/detail/${encodeURIComponent(id)}`,
-      `/files/${encodeURIComponent(id)}`
-    ]);
+  private async transcriptFromPayload(id: string, filePayload: unknown): Promise<PlaudTranscriptPage> {
     const fromFile = transcriptFromFilePayload(filePayload);
     if (fromFile.utterances.length > 0 || fromFile.nextCursor) {
       return fromFile;
     }
     const transcriptPayload = await this.getFirstJson([`/files/${encodeURIComponent(id)}/transcript`]);
     return transcriptFromFilePayload(transcriptPayload);
-  }
-
-  async loadRecord(fileId: string): Promise<PlaudFileRecord> {
-    const summary = await this.getFile(fileId);
-    const [notes, transcript] = await Promise.all([this.getNotes(fileId), this.getTranscript(fileId)]);
-    const transcriptText = transcript.utterances
-      .map((u) => (u.speaker ? `${u.speaker}: ${u.text}` : u.text))
-      .join("\n")
-      .trim();
-    return {
-      ...summary,
-      notes,
-      transcriptText,
-      utterances: transcript.utterances
-    };
   }
 
   private async getFirstJson(paths: string[]): Promise<unknown> {

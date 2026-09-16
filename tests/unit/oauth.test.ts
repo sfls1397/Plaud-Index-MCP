@@ -9,7 +9,7 @@ import {
   tokenNeedsRefresh
 } from "../../src/auth/oauth.js";
 import { generateCodeChallenge } from "../../src/auth/pkce.js";
-import { AuthExpiredError } from "../../src/auth/errors.js";
+import { AuthExpiredError, AuthTransportError } from "../../src/auth/errors.js";
 import { DEFAULT_MCP_CLIENT_ID, OAUTH_REDIRECT_URI } from "../../src/auth/constants.js";
 
 describe("Plaud MCP OAuth (public client / PKCE)", () => {
@@ -106,6 +106,23 @@ describe("Plaud MCP OAuth (public client / PKCE)", () => {
     expect(next.access_token).toBe("access-two");
     expect(next.refresh_token).toBe("refresh-one");
     expect(next.expires_at).toBe(now + 1800 * 1000);
+  });
+
+  it("maps refresh 5xx to AuthTransportError without leaking tokens", async () => {
+    const endpoints = resolveOAuthEndpoints({});
+    const secret = "refresh-should-not-appear";
+    await expect(
+      refreshTokenSet({
+        endpoints,
+        tokenSet: { access_token: "old", refresh_token: secret },
+        fetchImpl: async () => new Response(`unavailable ${secret}`, { status: 503 })
+      })
+    ).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(AuthTransportError);
+      expect(String(err)).not.toMatch(/auth expired/i);
+      expect(String(err)).not.toContain(secret);
+      return true;
+    });
   });
 
   it("maps refresh 401 to AuthExpiredError without leaking tokens", async () => {

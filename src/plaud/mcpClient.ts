@@ -17,7 +17,7 @@ import {
   utterancesFromUnknown
 } from "./normalize.js";
 import { redactSecrets } from "../sanitize.js";
-import { AuthExpiredError, isAuthExpiredError } from "../auth/errors.js";
+import { AuthExpiredError, isAuthExpiredError, isTransportError } from "../auth/errors.js";
 import { RELLOGIN_MESSAGE } from "../auth/constants.js";
 import type { PlaudAuthSession } from "../auth/session.js";
 
@@ -62,7 +62,43 @@ export class McpPlaudClient implements PlaudClient {
   }
 
   async getNotes(fileId: string): Promise<PlaudNoteTab[]> {
+    return this.notesFromPayload(await this.getFilePayload(fileId));
+  }
+
+  async getTranscript(fileId: string): Promise<PlaudTranscriptPage> {
+    return this.transcriptFromPayload(await this.getFilePayload(fileId));
+  }
+
+  async loadRecord(fileId: string): Promise<PlaudFileRecord> {
     const record = await this.getFilePayload(fileId);
+    const summary = normalizeSummary(record);
+    const [notes, transcript] = await Promise.all([
+      this.notesFromPayload(record),
+      this.transcriptFromPayload(record)
+    ]);
+    const transcriptText = transcript.utterances
+      .map((u: PlaudUtterance) => (u.speaker ? `${u.speaker}: ${u.text}` : u.text))
+      .join("\n")
+      .trim();
+    return {
+      ...summary,
+      notes,
+      transcriptText,
+      utterances: transcript.utterances
+    };
+  }
+
+  private async getFilePayload(fileId: string): Promise<Record<string, unknown>> {
+    const id = assertFileId(fileId);
+    const payload = await this.requestJson(`/open/third-party/files/${encodeURIComponent(id)}`);
+    const record = extractObject(payload);
+    if (!record) {
+      throw new Error("Plaud file not found");
+    }
+    return record;
+  }
+
+  private async notesFromPayload(record: Record<string, unknown>): Promise<PlaudNoteTab[]> {
     const resolved = await this.resolveNoteBlocks(record);
     const fromResolved = notesFromFilePayload({ ...record, note_list: resolved });
     if (fromResolved.length > 0) {
@@ -71,8 +107,7 @@ export class McpPlaudClient implements PlaudClient {
     return notesFromFilePayload(record);
   }
 
-  async getTranscript(fileId: string): Promise<PlaudTranscriptPage> {
-    const record = await this.getFilePayload(fileId);
+  private async transcriptFromPayload(record: Record<string, unknown>): Promise<PlaudTranscriptPage> {
     const sourceList = Array.isArray(record.source_list) ? record.source_list : [];
     const selected =
       sourceList.find((item) => item && typeof item === "object" && (item as { data_type?: unknown }).data_type === DEFAULT_TRANSCRIPT_BLOCK) ||
@@ -94,31 +129,6 @@ export class McpPlaudClient implements PlaudClient {
       /* fall through to raw text */
     }
     return { utterances: content.trim() ? [{ text: content }] : [] };
-  }
-
-  async loadRecord(fileId: string): Promise<PlaudFileRecord> {
-    const summary = await this.getFile(fileId);
-    const [notes, transcript] = await Promise.all([this.getNotes(fileId), this.getTranscript(fileId)]);
-    const transcriptText = transcript.utterances
-      .map((u: PlaudUtterance) => (u.speaker ? `${u.speaker}: ${u.text}` : u.text))
-      .join("\n")
-      .trim();
-    return {
-      ...summary,
-      notes,
-      transcriptText,
-      utterances: transcript.utterances
-    };
-  }
-
-  private async getFilePayload(fileId: string): Promise<Record<string, unknown>> {
-    const id = assertFileId(fileId);
-    const payload = await this.requestJson(`/open/third-party/files/${encodeURIComponent(id)}`);
-    const record = extractObject(payload);
-    if (!record) {
-      throw new Error("Plaud file not found");
-    }
-    return record;
   }
 
   private async resolveNoteBlocks(record: Record<string, unknown>): Promise<Record<string, unknown>[]> {
@@ -170,7 +180,7 @@ export class McpPlaudClient implements PlaudClient {
       try {
         await this.session.refresh();
       } catch (err) {
-        if (isAuthExpiredError(err)) {
+        if (isTransportError(err) || isAuthExpiredError(err)) {
           throw err;
         }
         throw new AuthExpiredError();

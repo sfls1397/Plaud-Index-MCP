@@ -23,6 +23,7 @@ export interface SecretStore {
   get(account: string): Promise<string | null>;
   set(account: string, value: string): Promise<void>;
   delete(account: string): Promise<void>;
+  describe(): string;
 }
 
 export interface OAuthEndpoints {

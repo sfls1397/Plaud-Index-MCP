@@ -9,10 +9,12 @@ import { MockPlaudClient } from "../../src/plaud/mockClient.js";
 import { MemorySecretStore } from "../../src/auth/secretStore.js";
 import { KEYCHAIN_ACCOUNT_OAUTH, RELLOGIN_MESSAGE } from "../../src/auth/constants.js";
 import { serializeTokenSet } from "../../src/auth/oauth.js";
-import { AuthExpiredError } from "../../src/auth/errors.js";
+import { AuthExpiredError, AuthTransportError } from "../../src/auth/errors.js";
 import type { PlaudAuthSession } from "../../src/auth/session.js";
+import { createAuthSession } from "../../src/auth/session.js";
 import { resolveOAuthEndpoints } from "../../src/auth/oauth.js";
 import { runOneRefresh } from "../../src/indexer/daemon.js";
+import { createAuthNoticeLog } from "../../src/auth/logOnce.js";
 
 function fakeSession(options: {
   token: string | null;
@@ -82,7 +84,8 @@ describe("McpPlaudClient", () => {
     const record = await client.loadRecord("file-1");
     expect(record.notes[0]?.markdown).toBe("Ship the indexer.");
     expect(record.transcriptText).toContain("Let's ship it.");
-    expect(urls.some((u) => u.includes("/open/third-party/files/"))).toBe(true);
+    const fileFetches = urls.filter((u) => u.endsWith("/open/third-party/files/file-1"));
+    expect(fileFetches).toHaveLength(1);
     expect(urls.join("\n")).not.toContain("mcp-access");
   });
 
@@ -119,6 +122,37 @@ describe("McpPlaudClient", () => {
     });
     await expect(client.listFiles()).rejects.toBeInstanceOf(AuthExpiredError);
     await expect(client.listFiles()).rejects.toThrow(RELLOGIN_MESSAGE);
+  });
+
+  it("does not claim auth expired when data-plane 401 refresh hits 5xx", async () => {
+    const store = new MemorySecretStore();
+    const tokenJson = serializeTokenSet({
+      access_token: "stale-access",
+      refresh_token: "refresh-keep",
+      expires_at: Date.now() + 60_000
+    });
+    await store.set(KEYCHAIN_ACCOUNT_OAUTH, tokenJson);
+    const session = await createAuthSession({
+      store,
+      fetchImpl: async (input) => {
+        if (String(input).includes("refresh")) {
+          return new Response("upstream", { status: 503 });
+        }
+        return new Response("nope", { status: 401 });
+      }
+    });
+    const client = new McpPlaudClient({
+      session,
+      fetchImpl: async (input) => {
+        if (String(input).includes("refresh")) {
+          return new Response("upstream", { status: 503 });
+        }
+        return new Response("nope", { status: 401 });
+      }
+    });
+    await expect(client.listFiles()).rejects.toBeInstanceOf(AuthTransportError);
+    await expect(client.listFiles()).rejects.not.toThrow(/auth expired/i);
+    expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toContain("refresh-keep");
   });
 });
 
@@ -167,5 +201,20 @@ describe("createPlaudClient auth order", () => {
       log: (m) => logs.push(m)
     });
     expect(logs.join("\n")).toBe(RELLOGIN_MESSAGE);
+  });
+
+  it("logs the re-login notice once across failed cycles", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "plaud-noauth-dedupe-"));
+    const logs: string[] = [];
+    const log = createAuthNoticeLog((m) => logs.push(m));
+    await runOneRefresh({
+      env: { PLAUD_INDEX_HOME: home, PLAUD_EMBEDDER: "mock" },
+      log
+    });
+    await runOneRefresh({
+      env: { PLAUD_INDEX_HOME: home, PLAUD_EMBEDDER: "mock" },
+      log
+    });
+    expect(logs.filter((m) => m === RELLOGIN_MESSAGE)).toHaveLength(1);
   });
 });

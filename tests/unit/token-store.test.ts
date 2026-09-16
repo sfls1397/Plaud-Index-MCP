@@ -2,8 +2,8 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { KEYCHAIN_ACCOUNT_OAUTH, RELLOGIN_MESSAGE } from "../../src/auth/constants.js";
-import { AuthExpiredError } from "../../src/auth/errors.js";
+import { KEYCHAIN_ACCOUNT_OAUTH } from "../../src/auth/constants.js";
+import { AuthExpiredError, AuthTransportError } from "../../src/auth/errors.js";
 import { createAuthSession } from "../../src/auth/session.js";
 import { MemorySecretStore } from "../../src/auth/secretStore.js";
 import { loadOrMigrateTokenSet } from "../../src/auth/tokenStore.js";
@@ -34,6 +34,8 @@ describe("token store + session", () => {
     expect(first.tokenSet?.access_token).toBe("file-access");
     expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toContain("file-refresh");
     expect(logs.join("\n")).toMatch(/Migrated Plaud MCP tokens/);
+    expect(logs.join("\n")).toMatch(/in-memory store/);
+    expect(logs.join("\n")).not.toMatch(/Keychain/);
     expect(logs.join("\n")).not.toContain("file-access");
     expect(logs.join("\n")).not.toContain("file-refresh");
 
@@ -99,7 +101,7 @@ describe("token store + session", () => {
     expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toContain("refresh-keep");
   });
 
-  it("logs re-login on invalid refresh without dumping secrets", async () => {
+  it("does not log re-login from the session on invalid refresh", async () => {
     const store = new MemorySecretStore();
     await store.set(
       KEYCHAIN_ACCOUNT_OAUTH,
@@ -117,9 +119,30 @@ describe("token store + session", () => {
       now: () => 10_000
     });
     await expect(session.refresh()).rejects.toBeInstanceOf(AuthExpiredError);
-    expect(logs.join("\n")).toBe(RELLOGIN_MESSAGE);
     expect(logs.join("\n")).not.toContain("secret-refresh");
     expect(logs.join("\n")).not.toContain("expired-access");
+    expect(logs.filter((m) => /auth expired/i.test(m))).toEqual([]);
+  });
+
+  it("does not clear tokens or claim expiry when refresh returns 5xx", async () => {
+    const store = new MemorySecretStore();
+    const now = 5_000_000;
+    await store.set(
+      KEYCHAIN_ACCOUNT_OAUTH,
+      serializeTokenSet({
+        access_token: "still-valid-enough",
+        refresh_token: "refresh-keep",
+        expires_at: now + 1_000
+      })
+    );
+    const session = await createAuthSession({
+      store,
+      fetchImpl: async () => new Response("upstream", { status: 503 }),
+      now: () => now
+    });
+    await expect(session.refresh()).rejects.toBeInstanceOf(AuthTransportError);
+    expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toContain("refresh-keep");
+    expect(await store.get(KEYCHAIN_ACCOUNT_OAUTH)).toContain("still-valid-enough");
   });
 
   it("uses PLAUD_INDEX_HOME file store in tests (not Keychain)", async () => {
